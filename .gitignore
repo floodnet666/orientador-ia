@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.venv/
+env/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environments
+.env
+.env.local
+.env.*.local
+
+# IDEs and OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Next.js
+.next/
+out/
+build/
+
+# Python / Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Misc
+*.log
+tests.log
+sync_err.txt
+test_output.txt
+uv_err.txt
+uv_add_err.txt
+uv_lock_err.txt
+
+# DB
+*.sqlite
+*.sqlite3
+
+# temporary backend folders
+tmp_backend/

@@ -1,0 +1,279 @@
+"""
+DebateRunner — streams 4 sequential Alma turns.
+Each turn receives the previous turns as context.
+Uses qwen3.5:4b for quality argumentative responses.
+"""
+import asyncio
+import logging
+import time
+from typing import AsyncIterator
+
+from app.agents.debate.context_analyzer import DebateContext
+from app.agents.debate.panel_selector import SelectedPanel
+from app.config import settings
+from app.state.graph_state import GraphState
+from app.lib import adk
+
+log = logging.getLogger("debate.runner")
+
+# ─── Role prompts ──────────────────────────────────────────────────────────────
+
+_PRIMARIA_PROMPT = """
+{ALMA_SYSTEM_PROMPT}
+
+=== INSTRUÇÕES PARA O DEBATE — PAPEL: PRIMÁRIA ===
+És a primeira voz teórica neste debate. Respondes directamente ao utilizador.
+
+Projecto de investigação:
+- TEMA: {TEMA}
+- PROBLEMA: {PROBLEMA}
+- Campo a desenvolver: {DEBATE_INTENT}
+- Nível académico: {ACADEMIC_LEVEL}
+- Pedido do utilizador: "{USER_MESSAGE}"
+
+O que deves fazer:
+1. Interpretar o pedido EXCLUSIVAMENTE pela tua lente teórica.
+2. Apresentar 2-3 argumentos concretos, usando os teus conceitos com precisão.
+3. Terminar com uma tese clara numa frase.
+4. Adaptar densidade conceptual ao nível académico ({ACADEMIC_LEVEL}).
+
+NÃO FAZER: redigir texto de trabalho, usar mais de 300 palavras, fazer perguntas.
+
+Iniciar sempre com: "**{ALMA_NAME}:** "
+Caso uses 'arxiv_search', apresenta as referências bibliográficas no seguinte formato:
+"Título do Livro.. Autor. Nome - Breve descrição da importância. Disponível em [link]"
+"""
+
+_COMPLEMENTAR_PROMPT = """
+{ALMA_SYSTEM_PROMPT}
+
+=== INSTRUÇÕES PARA O DEBATE — PAPEL: COMPLEMENTAR ===
+És a segunda voz teórica. O teu papel é SOMAR, nunca contrariar.
+
+Projecto: TEMA={TEMA} | PROBLEMA={PROBLEMA} | CAMPO={DEBATE_INTENT}
+
+O que {PRIMARIA_NAME} argumentou:
+---
+{PRIMARIA_CONTENT}
+---
+
+O que deves fazer:
+1. Reconhecer o contributo de {PRIMARIA_NAME} em 1 frase.
+2. Apresentar o que a TUA teoria acrescenta (o que {PRIMARIA_NAME} não cobre).
+3. Mostrar como as duas teorias se complementam.
+4. Identificar uma dimensão ainda não coberta — abertura para o debate.
+
+PROIBIDO: contradizer {PRIMARIA_NAME}, repetir os seus argumentos, usar mais de 250 palavras.
+
+Iniciar com: "**{ALMA_NAME}:** Retomando o que {PRIMARIA_NAME} colocou..."
+"""
+
+_ANTAGONISTA_PROMPT = """
+{ALMA_SYSTEM_PROMPT}
+
+=== INSTRUÇÕES PARA O DEBATE — PAPEL: ANTAGONISTA ===
+És a voz crítica. Desafias premissas — nunca atacas pessoas.
+
+Projecto: TEMA={TEMA} | PROBLEMA={PROBLEMA}
+Ângulo crítico específico: {ANTAGONISM_ANGLE}
+
+Argumentos anteriores:
+--- {PRIMARIA_NAME} disse: ---
+{PRIMARIA_CONTENT}
+
+--- {COMPLEMENTAR_NAME} disse: ---
+{COMPLEMENTAR_CONTENT}
+---
+
+O que deves fazer:
+1. Identificar a PREMISSA MAIS PROBLEMÁTICA dos argumentos anteriores.
+2. Mostrar como pode ser questionada com base na tua perspectiva.
+3. Propor uma reformulação alternativa do problema ou justificativa.
+4. O utilizador deve sair com UMA tensão clara para resolver.
+
+Máximo 250 palavras. Tom académico rigoroso.
+Iniciar com: "**{ALMA_NAME}:** Há uma tensão importante que não foi endereçada..."
+"""
+
+_METODOLOGICA_PROMPT = """
+{ALMA_SYSTEM_PROMPT}
+
+=== INSTRUÇÕES PARA O DEBATE — PAPEL: METODOLÓGICA ===
+És o árbitro prático. Não tomas partido teórico. Pergunta: "Como se prova empiricamente?"
+
+Projecto: TEMA={TEMA} | PROBLEMA={PROBLEMA} | CAMPO={DEBATE_INTENT}
+
+Debate até agora:
+{PRIMARIA_NAME}: {PRIMARIA_CONTENT}
+{COMPLEMENTAR_NAME}: {COMPLEMENTAR_CONTENT}
+{ANTAGONISTA_NAME}: {ANTAGONISTA_CONTENT}
+
+O que deves fazer:
+1. Identificar conceitos operacionalizáveis que emergiram.
+2. Apontar conceitos ainda vagos metodologicamente.
+3. Sugerir 1-2 instrumentos/abordagens para estudar o problema.
+4. Terminar com UMA PERGUNTA DIRECTA específica ao projecto (não genérica).
+
+Máximo 200 palavras.
+Iniciar com: "**{ALMA_NAME}:** Do ponto de vista metodológico, o debate levantou..."
+Caso uses 'arxiv_search', apresenta as referências bibliográficas no seguinte formato:
+"Título do Livro.. Autor. Nome - Breve descrição da importância. Disponível em [link]"
+"""
+
+
+def _get_system_prompt(alma_registry: dict, alma_id: str) -> str:
+    a = alma_registry.get(alma_id)
+    return a.system_prompt if a else ""
+
+class DebateRunner:
+    async def run(
+        self,
+        state: GraphState,
+        context: DebateContext,
+        panel: SelectedPanel,
+        alma_registry: dict,
+    ) -> AsyncIterator[dict]:
+        """Async generator yielding debate events for the WebSocket using ADK Agents."""
+        
+        from app.lib.tools.external_search import arxiv_search
+        from app.services.empirical.document_processor import empirical_processor
+        from functools import partial
+
+        search_tool = adk.Tool(
+            name="arxiv_search",
+            func=arxiv_search,
+            description="Pesquisa artigos científicos no arXiv para fundamentar argumentos com evidências reais."
+        )
+
+        # Bind project_id to the empirical search function
+        project_search_func = partial(empirical_processor.search_evidence, project_id=state.project_id)
+        
+        empirical_tool = adk.Tool(
+            name="search_evidence",
+            func=project_search_func,
+            description="Pesquisa nos dados empíricos (PDFs/CSVs) carregados pelo estudante para este projeto específico."
+        )
+
+        def _get_agent(role_name: str, alma_id: str, alma_name: str, prompt_template: str, **kwargs) -> adk.Agent:
+            system_prompt = prompt_template.format(
+                ALMA_SYSTEM_PROMPT=_get_system_prompt(alma_registry, alma_id),
+                ALMA_NAME=alma_name,
+                **kwargs
+            )
+            system_prompt += "\\n\\nCRÍTICO: Podes usar 'arxiv_search' para literatura externa e 'search_evidence' para analisar os dados carregados pelo aluno."
+            
+            return adk.Agent(
+                name=f"debate_{role_name.lower()}",
+                model=f"ollama/{settings.OLLAMA_CHAT_MODEL}",
+                system_prompt=system_prompt,
+                tools=[search_tool, empirical_tool]
+            )
+
+        def _cv(key: str) -> str:
+            v = context.canvas.get(key, {})
+            return v.get("content", "") if isinstance(v, dict) else str(v)
+
+        turns: dict[str, str] = {}
+
+        # ── TURN 1: PRIMÁRIA ──────────────────────────────────────────────────
+        t1 = time.perf_counter()
+        yield {"type": "debate_turn_start", "role": "PRIMARIA",
+               "alma_name": panel.PRIMARIA.alma_name, "turn_number": 1}
+
+        agent1 = _get_agent(
+            "PRIMARIA", panel.PRIMARIA.alma_id, panel.PRIMARIA.alma_name, _PRIMARIA_PROMPT,
+            TEMA=_cv("tema"), PROBLEMA=_cv("problema"),
+            DEBATE_INTENT=context.debate_intent,
+            ACADEMIC_LEVEL=context.academic_level,
+            USER_MESSAGE=context.user_message
+        )
+        
+        # Use agent.run to support tool calls loops natively
+        content1 = await agent1.run(context.user_message)
+        # Since run() returns the final string block at once (not streaming chunk by chunk to WS for now due to tool loop complexity), we yield it all.
+        yield {"type": "debate_chunk", "role": "PRIMARIA",
+               "alma_name": panel.PRIMARIA.alma_name, "content": content1, "turn_number": 1}
+
+        turns["PRIMARIA"] = content1
+        log.info("[DEBATE] Turn 1 PRIMARIA done in %.2fs", time.perf_counter() - t1)
+        yield {"type": "debate_turn_end", "role": "PRIMARIA",
+               "alma_name": panel.PRIMARIA.alma_name, "content": content1, "turn_number": 1}
+        await asyncio.sleep(0.5)
+
+        # ── TURN 2: COMPLEMENTAR ──────────────────────────────────────────────
+        t2 = time.perf_counter()
+        yield {"type": "debate_turn_start", "role": "COMPLEMENTAR",
+               "alma_name": panel.COMPLEMENTAR.alma_name, "turn_number": 2}
+
+        agent2 = _get_agent(
+            "COMPLEMENTAR", panel.COMPLEMENTAR.alma_id, panel.COMPLEMENTAR.alma_name, _COMPLEMENTAR_PROMPT,
+            PRIMARIA_NAME=panel.PRIMARIA.alma_name,
+            TEMA=_cv("tema"), PROBLEMA=_cv("problema"),
+            DEBATE_INTENT=context.debate_intent,
+            PRIMARIA_CONTENT=turns["PRIMARIA"]
+        )
+        
+        content2 = await agent2.run("Continua o debate.")
+        yield {"type": "debate_chunk", "role": "COMPLEMENTAR",
+               "alma_name": panel.COMPLEMENTAR.alma_name, "content": content2, "turn_number": 2}
+
+        turns["COMPLEMENTAR"] = content2
+        log.info("[DEBATE] Turn 2 COMPLEMENTAR done in %.2fs", time.perf_counter() - t2)
+        yield {"type": "debate_turn_end", "role": "COMPLEMENTAR",
+               "alma_name": panel.COMPLEMENTAR.alma_name, "content": content2, "turn_number": 2}
+        await asyncio.sleep(0.5)
+
+        # ── TURN 3: ANTAGONISTA ───────────────────────────────────────────────
+        t3 = time.perf_counter()
+        yield {"type": "debate_turn_start", "role": "ANTAGONISTA",
+               "alma_name": panel.ANTAGONISTA.alma_name, "turn_number": 3}
+
+        agent3 = _get_agent(
+            "ANTAGONISTA", panel.ANTAGONISTA.alma_id, panel.ANTAGONISTA.alma_name, _ANTAGONISTA_PROMPT,
+            PRIMARIA_NAME=panel.PRIMARIA.alma_name,
+            COMPLEMENTAR_NAME=panel.COMPLEMENTAR.alma_name,
+            TEMA=_cv("tema"), PROBLEMA=_cv("problema"),
+            PRIMARIA_CONTENT=turns["PRIMARIA"],
+            COMPLEMENTAR_CONTENT=turns["COMPLEMENTAR"],
+            ANTAGONISM_ANGLE=panel.ANTAGONISTA.antagonism_angle
+        )
+        
+        content3 = await agent3.run("Apresenta a tua crítica.")
+        yield {"type": "debate_chunk", "role": "ANTAGONISTA",
+               "alma_name": panel.ANTAGONISTA.alma_name, "content": content3, "turn_number": 3}
+
+        turns["ANTAGONISTA"] = content3
+        log.info("[DEBATE] Turn 3 ANTAGONISTA done in %.2fs", time.perf_counter() - t3)
+        yield {"type": "debate_turn_end", "role": "ANTAGONISTA",
+               "alma_name": panel.ANTAGONISTA.alma_name, "content": content3, "turn_number": 3}
+        await asyncio.sleep(0.5)
+
+        # ── TURN 4: METODOLÓGICA ──────────────────────────────────────────────
+        t4 = time.perf_counter()
+        yield {"type": "debate_turn_start", "role": "METODOLOGICA",
+               "alma_name": panel.METODOLOGICA.alma_name, "turn_number": 4}
+
+        agent4 = _get_agent(
+            "METODOLOGICA", panel.METODOLOGICA.alma_id, panel.METODOLOGICA.alma_name, _METODOLOGICA_PROMPT,
+            PRIMARIA_NAME=panel.PRIMARIA.alma_name,
+            COMPLEMENTAR_NAME=panel.COMPLEMENTAR.alma_name,
+            ANTAGONISTA_NAME=panel.ANTAGONISTA.alma_name,
+            TEMA=_cv("tema"), PROBLEMA=_cv("problema"),
+            DEBATE_INTENT=context.debate_intent,
+            PRIMARIA_CONTENT=turns["PRIMARIA"],
+            COMPLEMENTAR_CONTENT=turns["COMPLEMENTAR"],
+            ANTAGONISTA_CONTENT=turns["ANTAGONISTA"]
+        )
+        
+        content4 = await agent4.run("Finaliza com a perspectiva metodológica.")
+        yield {"type": "debate_chunk", "role": "METODOLOGICA",
+               "alma_name": panel.METODOLOGICA.alma_name, "content": content4, "turn_number": 4}
+
+        turns["METODOLOGICA"] = content4
+        log.info("[DEBATE] Turn 4 METODOLOGICA done in %.2fs", time.perf_counter() - t4)
+        yield {"type": "debate_turn_end", "role": "METODOLOGICA",
+               "alma_name": panel.METODOLOGICA.alma_name, "content": content4, "turn_number": 4}
+
+        yield {"type": "debate_complete", "turns": turns}
+
+debate_runner = DebateRunner()

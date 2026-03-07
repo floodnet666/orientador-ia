@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orientador_db
+      POSTGRES_USER: orientador
+      POSTGRES_PASSWORD: orientador_pass
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -U orientador -d orientador_db' ]
+      interval: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - '6333:6333'
+      - '6334:6334'
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    # Para usar GPU:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+
+  backend:
+    build: ./backend
+    ports:
+      - '8000:8000'
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orientador:orientador_pass@postgres:5432/orientador_db
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - QDRANT_HOST=qdrant
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+    volumes:
+      - ./backend/app:/app/app # Hot reload em desenvolvimento
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+      - ./scripts:/app/scripts
+  frontend:
+    build: ./frontend
+    ports:
+      - '3000:3000'
+    env_file: .env
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  ollama_data:

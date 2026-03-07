@@ -1,0 +1,133 @@
+"""
+OllamaClient — thin async wrapper around Ollama /api/chat.
+All operations log structured timing so every bottleneck is visible.
+"""
+import json
+import logging
+import time
+from typing import AsyncIterator, Optional
+
+import httpx
+
+from app.config import settings
+
+log = logging.getLogger("ollama_client")
+
+
+class OllamaClient:
+    def __init__(self) -> None:
+        self.base_url = settings.OLLAMA_BASE_URL
+        # 300s connect, 600s read — Ollama can take minutes on cold model load
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+        )
+
+    async def chat_stream(
+        self, model: str, messages: list, system: Optional[str] = None, tools: Optional[list] = None
+    ) -> AsyncIterator[str]:
+        """Streaming: yields text chunks. Logs timing."""
+        payload: dict = {"model": model, "messages": messages, "stream": True}
+        if system:
+            payload["system"] = system
+        if tools:
+            payload["tools"] = tools
+
+        t0 = time.perf_counter()
+        log.info("[OLLAMA STREAM] model=%s | msg_count=%d | tools=%s | START", model, len(messages), bool(tools))
+        first_chunk = True
+        chunks = 0
+        try:
+            async with self.client.stream(
+                "POST", f"{self.base_url}/api/chat", json=payload
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line:
+                        data = json.loads(line)
+                        if not data.get("done"):
+                            # Handle tool calls if present
+                            message = data.get("message", {})
+                            if "tool_calls" in message:
+                                yield json.dumps({"tool_calls": message["tool_calls"]})
+                                continue
+
+                            content = message.get("content", "")
+                            if content:
+                                if first_chunk:
+                                    ttft = time.perf_counter() - t0
+                                    log.info(
+                                        "[OLLAMA STREAM] model=%s | FIRST_CHUNK in %.2fs",
+                                        model, ttft,
+                                    )
+                                    first_chunk = False
+                                chunks += 1
+                                yield content
+        except httpx.TimeoutException as exc:
+            elapsed = time.perf_counter() - t0
+            log.error(
+                "[OLLAMA STREAM] TIMEOUT model=%s after %.1fs | %s", model, elapsed, exc
+            )
+            raise
+        except Exception as exc:
+            elapsed = time.perf_counter() - t0
+            log.error(
+                "[OLLAMA STREAM] ERROR model=%s after %.1fs | %s", model, elapsed, exc
+            )
+            raise
+        total = time.perf_counter() - t0
+        log.info(
+            "[OLLAMA STREAM] model=%s | DONE | chunks=%d | total=%.2fs", model, chunks, total
+        )
+
+    async def chat_complete(
+        self, model: str, messages: list, system: Optional[str] = None
+    ) -> str:
+        """Non-streaming: returns full response string. Logs timing."""
+        payload: dict = {"model": model, "messages": messages, "stream": False}
+        if system:
+            payload["system"] = system
+
+        t0 = time.perf_counter()
+        log.info("[OLLAMA COMPLETE] model=%s | msg_count=%d | START", model, len(messages))
+        try:
+            resp = await self.client.post(f"{self.base_url}/api/chat", json=payload)
+            resp.raise_for_status()
+            content = resp.json()["message"]["content"]
+            elapsed = time.perf_counter() - t0
+            log.info(
+                "[OLLAMA COMPLETE] model=%s | DONE in %.2fs | len=%d chars",
+                model, elapsed, len(content),
+            )
+            return content
+        except httpx.TimeoutException as exc:
+            elapsed = time.perf_counter() - t0
+            log.error(
+                "[OLLAMA COMPLETE] TIMEOUT model=%s after %.1fs | %s", model, elapsed, exc
+            )
+            raise
+        except Exception as exc:
+            elapsed = time.perf_counter() - t0
+            log.error(
+                "[OLLAMA COMPLETE] ERROR model=%s after %.1fs | %s", model, elapsed, exc
+            )
+            raise
+
+    async def embed(self, text: str) -> list[float]:
+        resp = await self.client.post(
+            f"{self.base_url}/api/embeddings",
+            json={"model": settings.OLLAMA_EMBED_MODEL, "prompt": text},
+        )
+        resp.raise_for_status()
+        return resp.json()["embedding"]
+
+    async def check_model(self, model: str) -> bool:
+        try:
+            resp = await self.client.get(f"{self.base_url}/api/tags")
+            resp.raise_for_status()
+            models = [m["name"] for m in resp.json().get("models", [])]
+            return any(m.startswith(model.split(":")[0]) for m in models)
+        except Exception:
+            return False
+
+
+ollama_client = OllamaClient()

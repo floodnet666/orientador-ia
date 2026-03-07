@@ -1,0 +1,56 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.14.1",
+    "asyncpg>=0.30.0",
+    "fastapi>=0.115.8",
+    "email-validator>=2.2.0",
+    "greenlet>=3.1.1",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt<4.0.0",
+    "pydantic-settings>=2.7.1",
+    "pydantic>=2.10.6",
+    "python-jose[cryptography]>=3.3.0",
+    "python-multipart>=0.0.20",
+    "redis>=5.2.1",
+    "sqlalchemy>=2.0.38",
+    "uvicorn[standard]>=0.34.0",
+    "websockets>=13.0",
+    "qdrant-client>=1.13.0",
+    "httpx>=0.28.1",
+    "arxiv>=2.1.3",
+    "pymupdf>=1.25.3",
+    "pandas>=2.2.3",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.15.4",
+    "aiosqlite>=0.20.0",
+    "pytest-mock>=3.15.1",
+]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+log_file = "tests.log"
+log_file_level = "INFO"
+log_file_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
+log_file_date_format = "%Y-%m-%d %H:%M:%S"
