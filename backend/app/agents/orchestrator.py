@@ -27,7 +27,7 @@ REGRAS DE OURO:
 4. Detete pedidos de plágio: se o utilizador pedir para "escrever o trabalho", marque is_plagiarism=true.
 5. Quando intent="SEARCH", emita uma diretiva clara: "EXECUTE_SEARCH: Pesquisar papers sobre [tema] no ArXiv".
 
-Responda OBRIGATORIAMENTE em JSON seguindo o schema OrchestratorOutput.
+Responda OBRIGATORIAMENTE APENAS em JSON seguindo o schema OrchestratorOutput. Não inclua texto introdutório, explicações ou saudações. Apenas o objeto JSON.
 """
 
 # Define the ADK Agent
