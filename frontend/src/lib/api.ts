@@ -110,3 +110,30 @@ export const almasApi = {
             body: JSON.stringify({ code, context }),
         }),
 }
+
+// ── Admin ────────────────────────────────────────────────────────────────────
+
+export const adminApi = {
+    // Users
+    getUsers: () => request<any[]>('/api/admin/users'),
+    createUser: (body: any) => request<any>('/api/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+    deleteUser: (id: string) => request<any>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+    resetPassword: (id: string, body: any) => request<any>(`/api/admin/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify(body) }),
+
+    // Almas
+    getAlmas: () => request<any[]>('/api/admin/almas'),
+    createAlma: (body: any) => request<any>('/api/admin/almas', { method: 'POST', body: JSON.stringify(body) }),
+    updateAlma: (id: string, body: any) => request<any>(`/api/admin/almas/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    deleteAlma: (id: string) => request<any>(`/api/admin/almas/${id}`, { method: 'DELETE' }),
+
+    // Alma Prompts
+    updatePrompt: (id: string, body: any) => request<any>(`/api/admin/almas/${id}/prompt`, { method: 'POST', body: JSON.stringify(body) }),
+    rollbackPrompt: (almaId: string, historyId: string) => request<any>(`/api/admin/almas/${almaId}/rollback/${historyId}`, { method: 'POST' }),
+    getPromptHistory: (id: string) => request<any[]>(`/api/admin/almas/${id}/history`),
+
+    // Observability
+    getMetrics: () => request<any>('/api/admin/metrics'),
+
+    // Ollama
+    getOllamaModels: () => request<string[]>('/api/admin/ollama/models'),
+}
