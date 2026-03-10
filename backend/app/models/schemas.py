@@ -111,3 +111,49 @@ class ChatMessageOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ── Admin ───────────────────────────────────────────────────────────────────
+
+class UserAdminOut(UserOut):
+    is_admin: bool
+    created_at: datetime
+
+class AlmaCreate(BaseModel):
+    name: str
+    description: str
+    resource_type: str
+    alma_type: Optional[str] = None
+    system_prompt: str
+    personality_descriptor: str
+    llm_model: Optional[str] = None
+    is_approved: bool = True
+
+class AlmaUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    personality_descriptor: Optional[str] = None
+    llm_model: Optional[str] = None
+    is_approved: Optional[bool] = None
+
+class AlmaPromptUpdate(BaseModel):
+    new_prompt: str
+    reason: Optional[str] = None
+
+class AlmaOut(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    resource_type: str
+    alma_type: Optional[str] = None
+    system_prompt: str
+    personality_descriptor: str
+    llm_model: Optional[str] = None
+    is_approved: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str

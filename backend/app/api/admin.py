@@ -1,0 +1,274 @@
+import logging
+from typing import List
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.auth import get_current_admin_user, hash_password
+from app.database import get_db
+from app.models.schemas import (
+    RegisterRequest, UserAdminOut, ResetPasswordRequest,
+    AlmaCreate, AlmaUpdate, AlmaOut, AlmaPromptUpdate
+)
+from app.models.sql_models import (
+    User, EcosystemResource, AlmaPromptHistory, SystemMetric,
+    AcademicLevelEnum, ResourceTypeEnum, AlmaTypeEnum
+)
+
+router = APIRouter(prefix="/api/admin", tags=["admin"])
+logger = logging.getLogger(__name__)
+
+# --- Users ---
+
+@router.get("/users", response_model=List[UserAdminOut])
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(User))
+    return result.scalars().all()
+
+@router.post("/users", response_model=UserAdminOut)
+async def create_user(
+    body: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(User).where(User.email == body.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    level_key = body.academic_level.upper().strip()
+    try:
+        level = AcademicLevelEnum[level_key]
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Invalid academic_level: {body.academic_level}")
+
+    user = User(
+        email=body.email,
+        password_hash=hash_password(body.password),
+        full_name=body.full_name,
+        academic_level=level,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.delete(user)
+    await db.commit()
+    return {"message": "User deleted"}
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_password(
+    user_id: UUID,
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.password_hash = hash_password(body.new_password)
+    await db.commit()
+    return {"message": "Password reset successfully"}
+
+# --- Almas ---
+
+@router.get("/almas", response_model=List[AlmaOut])
+async def list_almas(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(EcosystemResource))
+    return result.scalars().all()
+
+@router.post("/almas", response_model=AlmaOut)
+async def create_alma(
+    body: AlmaCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    try:
+        resource_type = ResourceTypeEnum[body.resource_type.upper()]
+        alma_type = AlmaTypeEnum[body.alma_type.upper()] if body.alma_type else None
+    except KeyError:
+        raise HTTPException(status_code=400, detail="Invalid resource or alma type")
+
+    alma = EcosystemResource(
+        name=body.name,
+        description=body.description,
+        resource_type=resource_type,
+        alma_type=alma_type,
+        system_prompt=body.system_prompt,
+        personality_descriptor=body.personality_descriptor,
+        llm_model=body.llm_model,
+        is_approved=body.is_approved
+    )
+    db.add(alma)
+    await db.commit()
+    await db.refresh(alma)
+    return alma
+
+@router.put("/almas/{alma_id}", response_model=AlmaOut)
+async def update_alma(
+    alma_id: UUID,
+    body: AlmaUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(EcosystemResource).where(EcosystemResource.id == alma_id))
+    alma = result.scalar_one_or_none()
+    if not alma:
+        raise HTTPException(status_code=404, detail="Alma not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(alma, key, value)
+    
+    await db.commit()
+    await db.refresh(alma)
+    return alma
+
+@router.delete("/almas/{alma_id}")
+async def delete_alma(
+    alma_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(EcosystemResource).where(EcosystemResource.id == alma_id))
+    alma = result.scalar_one_or_none()
+    if not alma:
+        raise HTTPException(status_code=404, detail="Alma not found")
+    await db.delete(alma)
+    await db.commit()
+    return {"message": "Alma deleted"}
+
+@router.post("/almas/{alma_id}/prompt")
+async def update_alma_prompt(
+    alma_id: UUID,
+    body: AlmaPromptUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(EcosystemResource).where(EcosystemResource.id == alma_id))
+    alma = result.scalar_one_or_none()
+    if not alma:
+        raise HTTPException(status_code=404, detail="Alma not found")
+
+    # Record history
+    history = AlmaPromptHistory(
+        alma_id=alma.id,
+        previous_prompt=alma.system_prompt,
+        new_prompt=body.new_prompt,
+        reason=body.reason,
+        changed_by_user_id=admin.id
+    )
+    db.add(history)
+    
+    # Update prompt
+    alma.system_prompt = body.new_prompt
+    await db.commit()
+    return {"message": "System prompt updated and recorded"}
+
+@router.post("/almas/{alma_id}/rollback/{history_id}")
+async def rollback_alma_prompt(
+    alma_id: UUID,
+    history_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(EcosystemResource).where(EcosystemResource.id == alma_id))
+    alma = result.scalar_one_or_none()
+    if not alma:
+        raise HTTPException(status_code=404, detail="Alma not found")
+        
+    history_result = await db.execute(select(AlmaPromptHistory).where(AlmaPromptHistory.id == history_id, AlmaPromptHistory.alma_id == alma_id))
+    history = history_result.scalar_one_or_none()
+    if not history:
+        raise HTTPException(status_code=404, detail="History record not found")
+
+    reverted_prompt = history.previous_prompt
+    
+    rollback_history = AlmaPromptHistory(
+        alma_id=alma.id,
+        previous_prompt=alma.system_prompt,
+        new_prompt=reverted_prompt,
+        reason=f"Rollback to history record {history_id}",
+        changed_by_user_id=admin.id
+    )
+    db.add(rollback_history)
+    
+    alma.system_prompt = reverted_prompt
+    await db.commit()
+    return {"message": "System prompt rolled back"}
+
+@router.get("/almas/{alma_id}/history")
+async def get_alma_prompt_history(
+    alma_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(
+        select(AlmaPromptHistory)
+        .where(AlmaPromptHistory.alma_id == alma_id)
+        .order_by(AlmaPromptHistory.changed_at.desc())
+    )
+    histories = result.scalars().all()
+    # We serialize it manually since no Pydantic schema was added for it.
+    return [
+        {
+            "id": str(h.id),
+            "alma_id": str(h.alma_id),
+            "previous_prompt": h.previous_prompt,
+            "new_prompt": h.new_prompt,
+            "reason": h.reason,
+            "changed_by_user_id": str(h.changed_by_user_id),
+            "changed_at": h.changed_at.isoformat() if h.changed_at else None
+        } for h in histories
+    ]
+
+# --- Observability ---
+
+@router.get("/metrics")
+async def get_system_metrics(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    result = await db.execute(select(SystemMetric).order_by(SystemMetric.created_at.desc()).limit(100))
+    metrics = result.scalars().all()
+    
+    avg_result = await db.execute(select(func.avg(SystemMetric.duration_ms)))
+    avg_duration = avg_result.scalar() or 0
+    
+    slow_queries_result = await db.execute(select(func.count(SystemMetric.id)).where(SystemMetric.duration_ms > 40000))
+    slow_queries = slow_queries_result.scalar() or 0
+    
+    return {
+        "recent_metrics": [
+            {
+                "id": str(m.id),
+                "endpoint": m.endpoint,
+                "duration_ms": m.duration_ms,
+                "status_code": m.status_code,
+                "error_message": m.error_message,
+                "created_at": m.created_at.isoformat() if m.created_at else None
+            } for m in metrics
+        ],
+        "average_duration_ms": avg_duration,
+        "slow_queries_count": slow_queries
+    }

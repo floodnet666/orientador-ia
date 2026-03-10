@@ -21,7 +21,11 @@ async def test_base_alma_stream_response(mocker, mock_state):
         
     mock_chat_stream.return_value = mock_stream_gen()
     
-    alma = BaseAlma(name="TestAlma", system_prompt="Be a test.", personality="Helpful")
+    alma = BaseAlma(name="TestAlma", system_prompt="Be a test.", personality="Helpful")    
+    mock_state = MagicMock()
+    mock_state.messages = []
+    import uuid
+    mock_state.project_id = str(uuid.uuid4())
     
     chunks = []
     async for chunk in alma.stream_response(mock_state):

@@ -24,7 +24,7 @@ async def test_upsert_alma(mocker):
 async def test_search_almas(mocker):
     mock_client = AsyncMock()
     mock_result = mocker.Mock(id="id1", score=0.9, payload={"meta": "data"})
-    mock_client.search.return_value = [mock_result]
+    mock_client.query_points.return_value = mocker.Mock(points=[mock_result])
     
     mocker.patch("app.services.qdrant_service.get_qdrant", return_value=mock_client)
     

@@ -1,0 +1,60 @@
+﻿
+=================================================== ERRORS ===================================================
+______________________________ ERROR collecting tests/test_advanced_features.py ______________________________
+ImportError while importing test module 'D:\orientador.ia\orientador-ia\backend\tests\test_advanced_features.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\thiag\AppData\Roaming\uv\python\cpython-3.12.13-windows-x86_64-none\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_advanced_features.py:24: in <module>
+    from app.lib.tools.external_search import arxiv_search
+E   ImportError: cannot import name 'arxiv_search' from 'app.lib.tools.external_search' (D:\orientador.ia\orientador-ia\backend\app\lib\tools\external_search.py)
+============================================== warnings summary ==============================================
+app\models\schemas.py:27
+  D:\orientador.ia\orientador-ia\backend\app\models\schemas.py:27: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class UserOut(BaseModel):
+
+app\models\schemas.py:53
+  D:\orientador.ia\orientador-ia\backend\app\models\schemas.py:53: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ProjectOut(BaseModel):
+
+app\models\schemas.py:104
+  D:\orientador.ia\orientador-ia\backend\app\models\schemas.py:104: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ChatMessageOut(BaseModel):
+
+app\models\schemas.py:143
+  D:\orientador.ia\orientador-ia\backend\app\models\schemas.py:143: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AlmaOut(BaseModel):
+
+app\main.py:88
+  D:\orientador.ia\orientador-ia\backend\app\main.py:88: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+.venv\Lib\site-packages\fastapi\applications.py:4599
+  D:\orientador.ia\orientador-ia\backend\.venv\Lib\site-packages\fastapi\applications.py:4599: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+.venv\Lib\site-packages\_pytest\cacheprovider.py:475
+  D:\orientador.ia\orientador-ia\backend\.venv\Lib\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path D:\orientador.ia\orientador-ia\backend\.pytest_cache\v\cache\nodeids: [WinError 5] Accesso negato: 'D:\\orientador.ia\\orientador-ia\\backend\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+.venv\Lib\site-packages\_pytest\cacheprovider.py:429
+  D:\orientador.ia\orientador-ia\backend\.venv\Lib\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path D:\orientador.ia\orientador-ia\backend\.pytest_cache\v\cache\lastfailed: [WinError 5] Accesso negato: 'D:\\orientador.ia\\orientador-ia\\backend\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================================== short test summary info ===========================================
+ERROR tests/test_advanced_features.py
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+8 warnings, 1 error in 0.81s

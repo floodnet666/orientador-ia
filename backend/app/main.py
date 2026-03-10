@@ -1,10 +1,14 @@
 """FastAPI application entrypoint."""
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import auth, chat, projects
+from app.api import auth, chat, projects, admin
+import time
+from app.database import AsyncSessionLocal
+from app.models.sql_models import SystemMetric
 
 # Register all Almas at startup
 import app.agents.almas.foucault  # noqa: F401
@@ -39,13 +43,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.api import auth, chat, projects, empirical, almas
+class ObservabilityMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        import os
+        if os.getenv("TESTING") == "1":
+            return await call_next(request)
+            
+        start_time = time.perf_counter()
+        status_code = 200 # Default to 200 OK
+        error_msg = None
+        response = None
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+        except Exception as e:
+            status_code = 500
+            error_msg = str(e)
+            raise e
+        finally:
+            # Aqui gravamos a métrica no DB
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            if request.url.path.startswith("/api/"):
+                try:
+                    async with AsyncSessionLocal() as db:
+                        metric = SystemMetric(
+                            endpoint=request.url.path,
+                            duration_ms=duration_ms,
+                            status_code=status_code,
+                            error_message=error_msg
+                        )
+                        db.add(metric)
+                        await db.commit()
+                        if duration_ms > 40000:
+                            logger.warning(f"SLOW REQUEST DETECTED: {request.url.path} took {duration_ms}ms")
+                except Exception as log_err:
+                    logger.error(f"Failed to save metric: {log_err}")
+        return response
+
+app.add_middleware(ObservabilityMiddleware)
+
+from app.api import auth, chat, projects, empirical, almas, admin
 
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(chat.router)
 app.include_router(empirical.router)
 app.include_router(almas.router)
+app.include_router(admin.router)
 
 
 @app.on_event("startup")

@@ -58,7 +58,6 @@ class User(Base):
     academic_level = Column(
         Enum(AcademicLevelEnum, name="academic_level_enum"), nullable=False
     )
-    is_admin = Column(Boolean, default=False, server_default="false", nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     projects = relationship("Project", back_populates="owner")
 
@@ -79,7 +78,6 @@ class EcosystemResource(Base):
     origin_project_id = Column(UUID(as_uuid=True), nullable=True)
     system_prompt = Column(Text, nullable=False)
     personality_descriptor = Column(String, nullable=False)
-    llm_model = Column(String, nullable=True)
     is_approved = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -144,32 +142,3 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     project = relationship("Project", back_populates="messages")
-
-
-class AlmaPromptHistory(Base):
-    __tablename__ = "alma_prompt_history"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    alma_id = Column(UUID(as_uuid=True), ForeignKey("ecosystem_resources.id"), nullable=False)
-    previous_prompt = Column(Text, nullable=False)
-    new_prompt = Column(Text, nullable=False)
-    reason = Column(Text, nullable=True)
-    changed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    changed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
-    alma = relationship("EcosystemResource")
-    changed_by = relationship("User")
-
-
-class SystemMetric(Base):
-    __tablename__ = "system_metrics"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    endpoint = Column(String, nullable=False)
-    duration_ms = Column(Integer, nullable=False)
-    status_code = Column(Integer, nullable=False)
-    error_message = Column(Text, nullable=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
-    user = relationship("User")

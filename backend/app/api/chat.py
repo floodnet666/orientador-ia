@@ -331,7 +331,25 @@ async def _run_standard_pipeline(
 
     asyncio.create_task(do_canvas_extraction())
     await websocket.send_text(json.dumps({"type": "done"}))
-    log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, time.perf_counter() - t_msg)
+    duration_s = time.perf_counter() - t_msg
+    log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, duration_s)
+    
+    duration_ms = int(duration_s * 1000)
+    try:
+        async with AsyncSessionLocal() as db_metrics:
+            from app.models.sql_models import SystemMetric
+            metric = SystemMetric(
+                endpoint="/api/chat/ws/standard",
+                duration_ms=duration_ms,
+                status_code=200,
+                user_id=user.id
+            )
+            db_metrics.add(metric)
+            await db_metrics.commit()
+            if duration_ms > 40000:
+                log.warning("[PIPELINE:%s] SLOW LLM DETECTED: took %dms", req_id, duration_ms)
+    except Exception as e:
+        log.error("Failed to log ws standard metric: %s", e)
 
 
 # ─── Debate pipeline ───────────────────────────────────────────────────────────
@@ -402,7 +420,25 @@ async def _run_debate_pipeline(
         await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
         await websocket.send_text(json.dumps({"type": "done"}))
 
-    log.info("[DEBATE:%s] DONE total=%.2fs", req_id, time.perf_counter() - t_msg)
+    duration_s = time.perf_counter() - t_msg
+    log.info("[DEBATE:%s] DONE total=%.2fs", req_id, duration_s)
+
+    duration_ms = int(duration_s * 1000)
+    try:
+        async with AsyncSessionLocal() as db_metrics:
+            from app.models.sql_models import SystemMetric
+            metric = SystemMetric(
+                endpoint="/api/chat/ws/debate",
+                duration_ms=duration_ms,
+                status_code=200,
+                user_id=user.id
+            )
+            db_metrics.add(metric)
+            await db_metrics.commit()
+            if duration_ms > 40000:
+                log.warning("[DEBATE:%s] SLOW LLM DETECTED: took %dms", req_id, duration_ms)
+    except Exception as e:
+        log.error("Failed to log ws debate metric: %s", e)
 
 
 # ─── REST: message history ──────────────────────────────────────────────────────

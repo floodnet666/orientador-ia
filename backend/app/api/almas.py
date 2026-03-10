@@ -6,7 +6,7 @@ import logging
 
 from app.api.auth import get_current_user
 from app.database import get_db
-from app.models.sql_models import User, EcosystemResource, ResourceTypeEnum
+from app.models.sql_models import User, EcosystemResource, ResourceTypeEnum, AlmaTypeEnum
 from app.services.genesis_service import genesis_service
 from app.services.ferramenteiro_service import ferramenteiro_service
 from app.services.qdrant_service import index_alma
@@ -19,6 +19,10 @@ from pydantic import BaseModel
 class GenesisRequest(BaseModel):
     description: str
 
+class ExecuteRequest(BaseModel):
+    code: str
+    context: dict = {}
+
 @router.post("/genesis")
 async def create_alma_via_genesis(
     request: GenesisRequest,
@@ -30,11 +34,13 @@ async def create_alma_via_genesis(
         alma_data = await genesis_service.generate_alma(request.description)
         
         new_alma = EcosystemResource(
+            resource_type=ResourceTypeEnum.ALMA,
             name=alma_data["name"],
             description=alma_data["description"],
-            type=ResourceTypeEnum(alma_data["type"]),
+            alma_type=AlmaTypeEnum(alma_data["type"]),
             system_prompt=alma_data["system_prompt"],
-            is_active=True
+            personality_descriptor=alma_data["description"][:100],
+            is_approved=True
         )
         
         db.add(new_alma)
@@ -58,12 +64,12 @@ async def create_alma_via_genesis(
 
 @router.post("/execute")
 async def execute_python_code(
-    code: str,
+    request: ExecuteRequest,
     user: User = Depends(get_current_user)
 ):
     """Agente Ferramenteiro: Executes Python code and returns results."""
     # Note: In a production app, this should be in a WASM sandbox or micro-container.
-    result = ferramenteiro_service.execute_code(code)
+    result = ferramenteiro_service.execute_code(request.code)
     return result
 
 @router.get("/")
@@ -72,5 +78,5 @@ async def list_available_almas(
     db: AsyncSession = Depends(get_db)
 ):
     """Lists all active Almas."""
-    result = await db.execute(select(EcosystemResource).where(EcosystemResource.is_active == True))
+    result = await db.execute(select(EcosystemResource).where(EcosystemResource.is_approved == True))
     return result.scalars().all()
