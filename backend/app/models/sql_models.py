@@ -60,7 +60,7 @@ class User(Base):
     )
     is_admin = Column(Boolean, default=False, server_default="false", nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    projects = relationship("Project", back_populates="owner")
+    projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
 
 
 class EcosystemResource(Base):
@@ -108,8 +108,8 @@ class Project(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     owner = relationship("User", back_populates="projects")
-    canvas_state = relationship("ProjectCanvasState", uselist=False, back_populates="project")
-    messages = relationship("ChatMessage", back_populates="project")
+    canvas_state = relationship("ProjectCanvasState", uselist=False, back_populates="project", cascade="all, delete-orphan")
+    messages = relationship("ChatMessage", back_populates="project", cascade="all, delete-orphan")
 
 
 class ProjectCanvasState(Base):

@@ -35,6 +35,8 @@ app = FastAPI(
     version="1.0.0",
 )
 
+app.add_middleware(ObservabilityMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://frontend:3000"],
@@ -42,41 +44,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-class ObservabilityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        start_time = time.perf_counter()
-        status_code = 200 # Default to 200 OK
-        error_msg = None
-        response = None
-        try:
-            response = await call_next(request)
-            status_code = response.status_code
-        except Exception as e:
-            status_code = 500
-            error_msg = str(e)
-            raise e
-        finally:
-            # Aqui gravamos a métrica no DB
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
-            if request.url.path.startswith("/api/"):
-                try:
-                    async with AsyncSessionLocal() as db:
-                        metric = SystemMetric(
-                            endpoint=request.url.path,
-                            duration_ms=duration_ms,
-                            status_code=status_code,
-                            error_message=error_msg
-                        )
-                        db.add(metric)
-                        await db.commit()
-                        if duration_ms > 40000:
-                            logger.warning(f"SLOW REQUEST DETECTED: {request.url.path} took {duration_ms}ms")
-                except Exception as log_err:
-                    logger.error(f"Failed to save metric: {log_err}")
-        return response
-
-app.add_middleware(ObservabilityMiddleware)
 
 from app.api import auth, chat, projects, empirical, almas, admin
 
