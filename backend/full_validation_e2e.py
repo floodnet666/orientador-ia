@@ -86,13 +86,14 @@ async def validate_pipeline():
         except Exception as e:
             print(f"❌ Erro ao buscar histórico: {e}")
 
-        # 6. Teste de ArXiv Search logic
-        print("🔍 [6/7] Testando Busca Externa (ArXiv)...")
-        from app.lib.tools.external_search import arxiv_search
+        # 6. Teste de DeepSearch logic
+        print("🔍 [6/7] Testando Busca Externa (DeepSearch)...")
+        from app.lib.tools.external_search import DeepSearchTool
         try:
-            res = await arxiv_search("Machine Learning")
-            if res:
-                print(f"✅ ArXiv retornou {len(res)} resultados.")
+            tool = DeepSearchTool()
+            res = await tool.func("Machine Learning")
+            if res.get("status") == "success":
+                print(f"✅ DeepSearch retornou {len(res.get('papers', []))} resultados.")
         except Exception as e:
             print(f"⚠️ Erro na busca ArXiv: {e}")
 

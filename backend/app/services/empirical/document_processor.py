@@ -14,7 +14,7 @@ log = logging.getLogger("empirical.processor")
 
 class EmpiricalProcessor:
     def __init__(self):
-        self.qdrant = AsyncQdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        self.qdrant = AsyncQdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT, check_compatibility=False)
         self.collection_name = "empirical_data"
 
     async def ensure_collection(self):
