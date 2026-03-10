@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str
 
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://frontend:3000"
+
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_CHAT_MODEL: str = "qwen3.5:4b"  # 1 - Almas (chat fluido)
     OLLAMA_ORCHESTRATOR_MODEL: str = "qwen3.5:4b"  # 2 - Orchestrator + Canvas (raciocínio estruturado)
