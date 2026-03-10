@@ -47,10 +47,43 @@ class EmpiricalProcessor:
         project_id_str = str(project_id)
         await self.ensure_collection()
         
-        # Simple chunking by paragraph/lines for MVP
-        chunks = [c.strip() for c in content.split("\n\n") if len(c.strip()) > 50]
+    def _chunk_text(self, text: str, max_chars: int = 800, overlap: int = 100) -> List[str]:
+        """Split text into manageable chunks for embeddings."""
+        # Simple recursive character splitting logic
+        if len(text) <= max_chars:
+            return [text.strip()] if text.strip() else []
+            
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + max_chars
+            if end < len(text):
+                # Try to find a good breaking point (newline or period)
+                last_newline = text.rfind("\n", start, end)
+                if last_newline > start + (max_chars // 2):
+                    end = last_newline
+                else:
+                    last_period = text.rfind(". ", start, end)
+                    if last_period > start + (max_chars // 2):
+                        end = last_period + 1
+            
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            
+            start = end - overlap if end < len(text) else end
+        return chunks
+
+    async def index_document(self, project_id: UUID, filename: str, content: str):
+        """Chunks, embeds, and stores the document in Qdrant."""
+        project_id_str = str(project_id)
+        await self.ensure_collection()
+        
+        # Use robust chunking to stay within embedding context
+        chunks = self._chunk_text(content)
         if not chunks:
-            chunks = [content]
+            log.warning("No content extracted from %s", filename)
+            return
 
         points = []
         for i, chunk in enumerate(chunks):

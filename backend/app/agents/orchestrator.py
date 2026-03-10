@@ -11,6 +11,12 @@ class OrchestratorOutput(BaseModel):
     is_plagiarism: bool = Field(..., description="Se a mensagem é um pedido de plágio")
     directive: str = Field(..., description="Diretiva interna para a Alma")
 
+import re
+import json
+import logging
+
+log = logging.getLogger("orchestrator")
+
 ORCHESTRATOR_SYSTEM_PROMPT = """
 Você é o Maestro (O Maestro), o orquestrador central do Orientador.IA. 
 O seu único papel é analisar a mensagem do utilizador e o GraphState atual para decidir a próxima ação.
@@ -27,17 +33,11 @@ REGRAS DE OURO:
 4. Detete pedidos de plágio: se o utilizador pedir para "escrever o trabalho", marque is_plagiarism=true.
 5. Quando intent="SEARCH", emita uma diretiva clara: "EXECUTE_SEARCH: Pesquisar papers sobre [tema] no ArXiv".
 
-Responda OBRIGATORIAMENTE APENAS em JSON seguindo o schema OrchestratorOutput. Não inclua texto introdutório, explicações ou saudações. Apenas o objeto JSON.
+RESPOSTA OBRIGATÓRIA:
+Apenas um objeto JSON seguindo o schema OrchestratorOutput. 
+PROIBIDO saudações, explicações ou texto conversacional como "Aqui está a análise...".
+Se falhar em retornar APENAS JSON, o sistema irá crashear.
 """
-
-# Define the ADK Agent
-maestro_agent = adk.Agent(
-    name='maestro_orchestrator',
-    model=f'ollama/{settings.OLLAMA_ORCHESTRATOR_MODEL}',
-    system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
-    tools=[],  # O Maestro NÃO usa ferramentas externas
-    output_schema=OrchestratorOutput
-)
 
 async def orchestrate(state: GraphState, user_message: str) -> dict:
     """Returns orchestrator decision using ADK Agent."""
@@ -60,11 +60,24 @@ async def orchestrate(state: GraphState, user_message: str) -> dict:
     }
 
     try:
-        result = await maestro_agent.run(user_message, context=context)
-        if isinstance(result, OrchestratorOutput):
-            return result.model_dump()
+        # Run agent but don't force strict validation here yet
+        # We will extract JSON manually to be resilient to fluff
+        raw_result = await maestro_agent.run(user_message, context=context)
         
-        # Heuristic fallback if parsing fails but message contains search keywords
+        if isinstance(raw_result, OrchestratorOutput):
+            return raw_result.model_dump()
+        
+        # If ADK returns a string (fluff + json)
+        if isinstance(raw_result, str):
+            json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group(0))
+                    return OrchestratorOutput(**data).model_dump()
+                except Exception:
+                    pass
+
+        # Fallback if no JSON found
         is_search = any(k in user_message.lower() for k in ["pesquise", "busque", "papers", "artigos", "bibliografia"])
         return {
             "selected_alma": "THEORETICAL",
