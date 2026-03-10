@@ -31,32 +31,27 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 log = logging.getLogger("chat.pipeline")
 
 
+import re
+
 # ─── Debate trigger detection ──────────────────────────────────────────────────
 
-_DEBATE_TRIGGERS = [
-    "desenvolver a justificativa",
-    "desenvolver o problema",
-    "formular os objectivos",
-    "formular os objetivos",
-    "definir a metodologia",
-    "me ajude a desenvolver",
-    "como posso fundamentar",
-    "debatam sobre",
-    "discutam sobre",
-    "analisem o",
-    "o que pensam sobre",
-    "qual a perspectiva de",
-    "ajude com a justificativa",
-    "ajude com o problema",
-    "ajude com os objectivos",
-    "ajude com os objetivos",
-    "ajude com a metodologia",
-]
-
+_DEBATE_PATTERN = re.compile(
+    r"(debate|debater|debatam|discutir|discutam|posicionamento|perspectiva|o que pensam|analisem)\s+(sobre|acerca|os|as|o|a)?",
+    re.IGNORECASE
+)
 
 def _detect_debate_trigger(message: str) -> bool:
     msg = message.lower()
-    return any(t in msg for t in _DEBATE_TRIGGERS)
+    # Verifica gatilhos específicos de desenvolvimento do canvas
+    canvas_triggers = [
+        "desenvolver a justificativa", "desenvolver o problema",
+        "formular os objetivos", "definir a metodologia", "ajude com o problema"
+    ]
+    if any(t in msg for t in canvas_triggers):
+        return True
+        
+    # Verifica intenção genérica de debate teórica usando Regex
+    return bool(_DEBATE_PATTERN.search(msg))
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────

@@ -33,19 +33,28 @@ PLAGIARISM_RESPONSE = (
 
 
 async def check_plagiarism(user_message: str) -> tuple[bool, float]:
-    """Returns (is_violation, confidence)."""
+    """Retorna (is_violation, confidence). Ignora respostas que não sejam JSON."""
     try:
         response = await ollama_client.chat_complete(
             model=settings.OLLAMA_GUARDRAIL_MODEL,
             messages=[{"role": "user", "content": user_message}],
-            system=GUARDRAIL_PROMPT,
+            system=GUARDRAIL_PROMPT + "\nResponda APENAS o JSON. Não adicione saudações ou explicações.",
         )
         # Extract JSON from response
         start = response.find("{")
         end = response.rfind("}") + 1
         if start >= 0 and end > start:
-            data = json.loads(response[start:end])
-            return data.get("is_violation", False), data.get("confidence", 0.0)
-    except Exception:
-        pass
-    return False, 0.0
+            try:
+                data = json.loads(response[start:end])
+                return data.get("is_violation", False), data.get("confidence", 0.0)
+            except json.JSONDecodeError:
+                pass
+        
+        # Se não encontrou JSON válido, logamos e retornamos False para não travar o fluxo.
+        import logging
+        logging.getLogger("app.guardrails").warning(f"[GUARDRAIL] Resposta inválida (não JSON): {response[:100]}...")
+        return False, 0.0
+    except Exception as e:
+        import logging
+        logging.getLogger("app.guardrails").error(f"[GUARDRAIL] Erro no processamento: {e}")
+        return False, 0.0
