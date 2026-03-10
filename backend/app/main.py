@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import auth, chat, projects, admin
 import time
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.sql_models import SystemMetric
 

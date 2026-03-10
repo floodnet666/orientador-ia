@@ -63,7 +63,14 @@ export class ChatSocket {
     }
 
     private _open() {
-        const url = `${WS_BASE}/api/chat/${this.projectId}/ws?token=${this.token}`
+        let baseUrl = process.env.NEXT_PUBLIC_WS_URL
+        if (!baseUrl && typeof window !== 'undefined') {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+            baseUrl = `${protocol}//${window.location.host}`
+        }
+        baseUrl = baseUrl || 'ws://localhost:8000'
+
+        const url = `${baseUrl}/api/chat/${this.projectId}/ws?token=${this.token}`
         console.log(`[WS] Connecting to ${url}`)
         this.ws = new WebSocket(url)
 
