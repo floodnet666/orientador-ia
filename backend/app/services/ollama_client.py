@@ -129,5 +129,17 @@ class OllamaClient:
         except Exception:
             return False
 
+    async def list_models(self) -> list[str]:
+        """Fetch all locally installed models from Ollama."""
+        try:
+            resp = await self.client.get(f"{self.base_url}/api/tags")
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+            # Return full names including tags (e.g., 'llama3:latest')
+            return [m["name"] for m in models]
+        except Exception as e:
+            log.error(f"[OLLAMA LIST] Failed to fetch models: {e}")
+            return []
+
 
 ollama_client = OllamaClient()

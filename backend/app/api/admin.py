@@ -272,3 +272,10 @@ async def get_system_metrics(
         "average_duration_ms": avg_duration,
         "slow_queries_count": slow_queries
     }
+
+@router.get("/ollama/models", response_model=List[str])
+async def list_ollama_models(
+    admin: User = Depends(get_current_admin_user)
+):
+    from app.services.ollama_client import ollama_client
+    return await ollama_client.list_models()
