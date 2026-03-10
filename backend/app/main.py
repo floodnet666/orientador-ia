@@ -45,10 +45,6 @@ app.add_middleware(
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        import os
-        if os.getenv("TESTING") == "1":
-            return await call_next(request)
-            
         start_time = time.perf_counter()
         status_code = 200 # Default to 200 OK
         error_msg = None
