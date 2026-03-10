@@ -128,10 +128,16 @@ class Agent(Generic[T]):
                 break
 
         if self.output_schema:
+            import re
             try:
                 # Attempt to extract JSON if schema is required
                 cleaned_response = response_content.strip()
-                if "```json" in cleaned_response:
+                
+                # Robust extraction: find the first { and last }
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(0)
+                elif "```json" in cleaned_response:
                     cleaned_response = cleaned_response.split("```json")[1].split("```")[0].strip()
                 elif "```" in cleaned_response:
                     cleaned_response = cleaned_response.split("```")[1].split("```")[0].strip()
@@ -139,6 +145,7 @@ class Agent(Generic[T]):
                 return self.output_schema.model_validate_json(cleaned_response)
             except Exception as e:
                 print(f"ADK Shim Validation Error for agent {self.name}: {e}")
+                # Fallback: if we can't parse, return raw to avoid total failure
                 return response_content
         
         return response_content

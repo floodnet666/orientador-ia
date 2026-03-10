@@ -1,5 +1,5 @@
 FROM qwen3.5:0.8b
-PARAMETER num_ctx 8192
+PARAMETER num_ctx 16384
 PARAMETER stop "<|endoftext|>"
 PARAMETER stop "<|im_start|>"
 PARAMETER stop "<|im_end|>"
