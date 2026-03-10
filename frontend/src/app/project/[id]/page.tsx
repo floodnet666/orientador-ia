@@ -68,7 +68,11 @@ export default function ProjectPage() {
                 addMessage({ role: 'system', content: text })
                 setStreaming(false)
             },
-            (msg) => console.error('WS Error:', msg),
+            (msg) => {
+                console.error('WS Error:', msg)
+                setStreaming(false)
+                _dispatchDebate('debate_done', {}) // Safety reset for debate UI
+            },
             debateCallbacks,
         )
 

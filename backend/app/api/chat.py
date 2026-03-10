@@ -289,8 +289,9 @@ async def _run_standard_pipeline(
         # 4. Orchestrate
         from app.agents.orchestrator import orchestrate
         decision = await orchestrate(state, user_content)
+        intent = decision.get("intent", "DIALOG")
         state.orchestrator_directive = decision.get("directive", "")
-        log.info("[PIPELINE:%s] 4_ORCHESTRATE alma=%s", req_id, decision.get("selected_alma"))
+        log.info("[PIPELINE:%s] 4_ORCHESTRATE alma=%s intent=%s", req_id, decision.get("selected_alma"), intent)
 
         # 5. Select Alma
         from app.agents.almas.base_alma import get_alma_by_name, ALMA_REGISTRY
@@ -302,6 +303,11 @@ async def _run_standard_pipeline(
         alma = get_alma_by_name(alma_name) or (
             next(iter(ALMA_REGISTRY.values()), None) if ALMA_REGISTRY else None
         )
+
+        # 5.1 Enforce search if intent is SEARCH
+        if intent == "SEARCH" and state.orchestrator_directive:
+            # We explicitly tell the Alma to use search tools
+            state.orchestrator_directive += "\n[URGENTE]: Utilize obrigatoriamente a ferramenta DeepSearch para fundamentar esta resposta."
 
         # 6. Stream alma response with tool handling
         full_response = ""
