@@ -23,7 +23,8 @@ class OllamaClient:
         )
 
     async def chat_stream(
-        self, model: str, messages: list, system: Optional[str] = None, tools: Optional[list] = None
+        self, model: str, messages: list, system: Optional[str] = None, tools: Optional[list] = None,
+        options: Optional[dict] = None
     ) -> AsyncIterator[str]:
         """Streaming: yields text chunks. Logs timing."""
         payload: dict = {"model": model, "messages": messages, "stream": True}
@@ -31,6 +32,8 @@ class OllamaClient:
             payload["system"] = system
         if tools:
             payload["tools"] = tools
+        if options:
+            payload["options"] = options
 
         t0 = time.perf_counter()
         log.info("[OLLAMA STREAM] model=%s | msg_count=%d | tools=%s | START", model, len(messages), bool(tools))

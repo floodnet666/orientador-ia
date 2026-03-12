@@ -106,7 +106,7 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                     setDebateTurns(prev => {
                         const updated = [...prev]
                         const last = updated[updated.length - 1]
-                        if (last && last.role === data.role) {
+                        if (last && (last.almaName === data.alma_name || last.role === data.role)) {
                             updated[updated.length - 1] = { ...last, content: last.content + data.content }
                         }
                         return updated

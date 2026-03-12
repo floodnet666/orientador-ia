@@ -17,7 +17,8 @@ log = logging.getLogger("almas.api")
 from pydantic import BaseModel
 
 class GenesisRequest(BaseModel):
-    description: str
+    description: str | None = None
+    prompt: str | None = None
 
 class ExecuteRequest(BaseModel):
     code: str
@@ -31,7 +32,11 @@ async def create_alma_via_genesis(
 ):
     """Agente Génesis: Creates a new Alma based on a textual description."""
     try:
-        alma_data = await genesis_service.generate_alma(request.description)
+        desc = request.description or request.prompt
+        if not desc:
+            raise HTTPException(status_code=400, detail="Missing description or prompt")
+            
+        alma_data = await genesis_service.generate_alma(desc)
         
         new_alma = EcosystemResource(
             resource_type=ResourceTypeEnum.ALMA,
@@ -72,7 +77,7 @@ async def execute_python_code(
     result = ferramenteiro_service.execute_code(request.code)
     return result
 
-@router.get("/")
+@router.get("")
 async def list_available_almas(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

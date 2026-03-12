@@ -17,7 +17,7 @@ Deves retornar um JSON com os seguintes campos:
 - system_prompt: Um prompt detalhado de sistema que define a personalidade, o rigor académico e a base teórica dessa Alma.
 
 Rigor: A Alma deve ter uma voz distinta, usar terminologia técnica adequada e ser capaz de criticar ou apoiar argumentos de forma fundamentada.
-JSON format only.
+Return EXACTLY a valid JSON object. Do NOT use Python triple-quotes. All strings MUST be enclosed in standard double-quotes `"`.
 """
 
 class GenesisService:
@@ -29,14 +29,13 @@ class GenesisService:
         # In a real ADK, we'd use a structured output tool or prompt.
         response_text = ""
         async for chunk in ollama_client.chat_stream(
-            model=settings.OLLAMA_CHAT_MODEL,
+            model=settings.OLLAMA_GUARDRAIL_MODEL,
             messages=[
                 {"role": "system", "content": GENESIS_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
             ]
         ):
-            if "content" in chunk:
-                response_text += chunk["content"]
+            response_text += chunk
 
         try:
             # Clean possible markdown block
@@ -44,6 +43,17 @@ class GenesisService:
                 response_text = response_text.split("```json")[1].split("```")[0]
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0]
+                
+            # Robust fallback to fix python-style triple quotes """ often emitted by some LLMs
+            if '"""' in response_text:
+                import re
+                def replacer(match):
+                    content = match.group(1)
+                    # Escape any unescaped double quotes and literal newlines to become valid JSON
+                    content = content.replace('"', '\\"').replace('\n', '\\n')
+                    return f'"{content}"'
+                
+                response_text = re.sub(r'"""(.*?)"""', replacer, response_text, flags=re.DOTALL)
             
             return json.loads(response_text.strip())
         except Exception as e:

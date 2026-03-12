@@ -38,7 +38,7 @@ async def _get_project_or_404(project_id: UUID, user_id, db: AsyncSession) -> Pr
     return project
 
 
-@router.get("/", response_model=list[ProjectOut])
+@router.get("", response_model=list[ProjectOut])
 async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -47,7 +47,7 @@ async def list_projects(
     return result.scalars().all()
 
 
-@router.post("/", response_model=ProjectOut, status_code=201)
+@router.post("", response_model=ProjectOut, status_code=201)
 async def create_project(
     body: ProjectCreate,
     current_user: User = Depends(get_current_user),

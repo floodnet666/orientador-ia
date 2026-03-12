@@ -89,7 +89,7 @@ async def index_alma(alma) -> None:
                 payload={
                     "name": alma.name,
                     "description": alma.description,
-                    "alma_type": alma.type.value if hasattr(alma.type, 'value') else str(alma.type),
+                    "alma_type": alma.alma_type.value if hasattr(alma.alma_type, 'value') else str(alma.alma_type),
                 },
             )
         ],

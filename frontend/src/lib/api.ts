@@ -15,7 +15,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
     if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(err.detail || 'Request failed')
+        const errorMsg = Array.isArray(err.detail) ? err.detail.map((e: any) => `${e.loc?.join('.')}: ${e.msg}`).join(', ') : err.detail
+        throw new Error(errorMsg || 'Request failed')
     }
     return res.json()
 }
@@ -99,10 +100,29 @@ export const empiricalApi = {
 // ── Almas (Genesis & Tooling) ────────────────────────────────────────────────
 
 export const almasApi = {
-    genesis: (prompt: string) => request<unknown>('/api/almas/genesis', {
-        method: 'POST',
-        body: JSON.stringify({ prompt }),
-    }),
+    genesis: async (prompt: string) => {
+        // Bypass next.js /api proxy (which has a hardcoded 30s timeout) for this slow request
+        const url = typeof window !== 'undefined' 
+            ? `${window.location.protocol}//${window.location.hostname}:8000/api/almas/genesis` 
+            : `${API_BASE}/api/almas/genesis`;
+        
+        const token = getToken();
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ description: prompt }),
+        });
+        
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            const errorMsg = Array.isArray(err.detail) ? err.detail.map((e: any) => `${e.loc?.join('.')}: ${e.msg}`).join(', ') : err.detail;
+            throw new Error(errorMsg || 'Genesis request failed');
+        }
+        return res.json();
+    },
 
     execute: (code: string, context: Record<string, unknown> = {}) =>
         request<any>('/api/almas/execute', {

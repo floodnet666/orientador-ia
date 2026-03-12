@@ -1,6 +1,8 @@
+import time
 import json
 import asyncio
-from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union
+from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union, AsyncIterator
+import logging
 from pydantic import BaseModel
 from app.services.ollama_client import OllamaClient
 
@@ -59,12 +61,55 @@ class Agent(Generic[T]):
             })
         return formatted_tools
 
+    async def stream(self, input_text: str, context: Optional[Dict[str, Any]] = None) -> AsyncIterator[str]:
+        """Async generator that yields content chunks, handling tools internally."""
+        full_context = f"Context: {json.dumps(context)}\n\nUser Message: {input_text}" if context else input_text
+        
+        messages = [{"role": "user", "content": full_context}]
+        tools_schema = self._format_tools()
+        options = {"num_ctx": settings.OLLAMA_NUM_CTX}
+        
+        for _ in range(3):
+            tool_calls = None
+            async for chunk in self.client.chat_stream(
+                model=self.model_name, 
+                messages=messages, 
+                system=self.system_prompt,
+                tools=tools_schema,
+                options=options
+            ):
+                if chunk.startswith('{"tool_calls":'):
+                    tool_calls = json.loads(chunk)["tool_calls"]
+                    break
+                yield chunk
+
+            if tool_calls:
+                messages.append({"role": "assistant", "content": "", "tool_calls": tool_calls})
+                for tc in tool_calls:
+                    func_name = tc["function"]["name"]
+                    func_args = tc["function"]["arguments"]
+                    tool = next((t for t in self.tools if t.name == func_name), None)
+                    if tool:
+                        try:
+                            if asyncio.iscoroutinefunction(tool.func):
+                                result = await tool.func(**func_args)
+                            else:
+                                result = tool.func(**func_args)
+                            messages.append({"role": "tool", "content": json.dumps(result), "name": func_name})
+                        except Exception as e:
+                            messages.append({"role": "tool", "content": json.dumps({"error": str(e)}), "name": func_name})
+                    else:
+                        messages.append({"role": "tool", "content": json.dumps({"error": "Tool not found"}), "name": func_name})
+            else:
+                break
+
     async def run(self, input_text: str, context: Optional[Dict[str, Any]] = None) -> Union[T, str]:
         """Simulates agent execution using OllamaClient with tool support"""
         full_context = f"Context: {json.dumps(context)}\n\nUser Message: {input_text}" if context else input_text
         
         messages = [{"role": "user", "content": full_context}]
         tools_schema = self._format_tools()
+        options = {"num_ctx": settings.OLLAMA_NUM_CTX}
         
         # Tool execution loop (max 3 iterations to prevent infinite loops)
         for _ in range(3):
@@ -75,7 +120,8 @@ class Agent(Generic[T]):
                 model=self.model_name, 
                 messages=messages, 
                 system=self.system_prompt,
-                tools=tools_schema
+                tools=tools_schema,
+                options=options
             ):
                 if chunk.startswith('{"tool_calls":'):
                     # Intercept tool calls

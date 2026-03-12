@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     OLLAMA_GUARDRAIL_MODEL: str = "qwen3.5:0.8b"  # 3 - Guardrails (classificação ultra-rápida)
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
     OLLAMA_EMBED_DIMENSIONS: int = 768
+    OLLAMA_NUM_CTX: int = 8192
 
     QDRANT_HOST: str = "qdrant"
     QDRANT_PORT: int = 6333
