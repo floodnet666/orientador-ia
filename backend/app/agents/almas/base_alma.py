@@ -118,10 +118,12 @@ class BaseAlma:
     def __init__(self, name: str, system_prompt: str, personality: str) -> None:
         self.name = name
         self.personality = personality
-        self._system_prompt = system_prompt + "\\n\\n" + BASE_ALMA_INSTRUCTIONS
+        self._system_prompt = system_prompt + "\n\n" + BASE_ALMA_INSTRUCTIONS
         self.tools = [
             DeepSearchTool()
         ]
+        self.llm_params = None  # Suporte para F5 Orquestração Stateless
+
 
     def _format_tools(self) -> list[dict] | None:
         """Converts ADK Tools to Ollama Schema."""
@@ -169,10 +171,17 @@ class BaseAlma:
                 "content": f"[Directiva interna do Maestro]: {state.orchestrator_directive}",
             })
             
+        # Determina modelo e parâmetros (F5)
+        model_name = settings.OLLAMA_CHAT_MODEL
+        temperature = 0.7
+        if hasattr(self, 'llm_params') and self.llm_params:
+            model_name = self.llm_params.model
+            temperature = self.llm_params.temperature
+
         while True:
             tool_calls = None
             async for chunk in ollama_client.chat_stream(
-                model=settings.OLLAMA_CHAT_MODEL,
+                model=model_name,
                 messages=context,
                 system=self._system_prompt,
                 tools=self._format_tools()
@@ -232,3 +241,26 @@ def register_alma(alma: BaseAlma) -> None:
 
 def get_alma_by_name(name: str) -> BaseAlma | None:
     return ALMA_REGISTRY.get(name)
+
+
+class StatelessAlma(BaseAlma):
+    def __init__(self, config):
+        """
+        Instancia de forma dinâmica sem depender do registo estático.
+        `config` deve ser um objecto AgentConfig (importado dinamicamente para evitar circulares).
+        """
+        self.name = config.name
+        self.personality = config.persona_description
+        self._system_prompt = config.system_prompt + "\n\n" + BASE_ALMA_INSTRUCTIONS
+        self.tools = []
+        
+        # Mapeia ferramentas habilitadas
+        from app.lib.tools.external_search import DeepSearchTool
+        for t in config.tools:
+            if t.enabled:
+                if t.name in ["openalex_search", "scielo_search", "arxiv_search"]:
+                    if not any(isinstance(x, DeepSearchTool) for x in self.tools):
+                        self.tools.append(DeepSearchTool())
+        
+        self.llm_params = config.llm_params
+

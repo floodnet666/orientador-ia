@@ -36,41 +36,49 @@ app = FastAPI(
     version="1.0.0",
 )
 
-class ObservabilityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+class ObservabilityMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+            # Bypassa WebSockets e rotas não-API para evitar quebras no call_next (Starlette issue)
+            return await self.app(scope, receive, send)
+
         start_time = time.perf_counter()
-        status_code = 200 # Default to 200 OK
+        status_code = [200]
         error_msg = None
-        response = None
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status_code[0] = message["status"]
+            await send(message)
+
         try:
-            response = await call_next(request)
-            status_code = response.status_code
+            await self.app(scope, receive, send_wrapper)
         except Exception as e:
-            status_code = 500
+            status_code[0] = 500
             error_msg = str(e)
             raise e
         finally:
-            # Aqui gravamos a métrica no DB
             duration_ms = int((time.perf_counter() - start_time) * 1000)
-            if request.url.path.startswith("/api/"):
-                try:
-                    async with AsyncSessionLocal() as db:
-                        # Check if user_id is in request (if authenticated)
-                        user_id = getattr(request.state, "user_id", None)
-                        metric = SystemMetric(
-                            endpoint=request.url.path,
-                            duration_ms=duration_ms,
-                            status_code=status_code,
-                            error_message=error_msg,
-                            user_id=user_id
-                        )
-                        db.add(metric)
-                        await db.commit()
-                        if duration_ms > 40000:
-                            logger.warning(f"SLOW REQUEST DETECTED: {request.url.path} took {duration_ms}ms")
-                except Exception as log_err:
-                    logger.error(f"Failed to save metric: {log_err}")
-        return response
+            try:
+                async with AsyncSessionLocal() as db:
+                    # O middleware ASGI não monta o Request da mesma forma, pegamos do scope
+                    # O ID do usuário geralmente entra no scope pelo AuthMiddleware se houver
+                    metric = SystemMetric(
+                        endpoint=scope["path"],
+                        duration_ms=duration_ms,
+                        status_code=status_code[0],
+                        error_message=error_msg,
+                        user_id=None # Simplificado para evitar quebras de contexto stateless
+                    )
+                    db.add(metric)
+                    await db.commit()
+                    if duration_ms > 40000:
+                        logger.warning(f"SLOW REQUEST DETECTED: {scope['path']} took {duration_ms}ms")
+            except Exception as log_err:
+                logger.error(f"Failed to save metric: {log_err}")
 
 app.add_middleware(ObservabilityMiddleware)
 

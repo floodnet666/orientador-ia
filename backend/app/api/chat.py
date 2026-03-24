@@ -225,6 +225,9 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
             if not user_content:
                 continue
 
+            # Suporte para F5 Orquestração Stateless
+            agent_config_override = msg_data.get("agent_config_override")
+
             req_id = f"{str(project_id)[:8]}@{int(t_msg)}"
             log.info("[PIPELINE:%s] START | len=%d", req_id, len(user_content))
 
@@ -237,7 +240,7 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
                 )
             else:
                 await _run_standard_pipeline(
-                    websocket, project_id, user, user_content, req_id, t_msg
+                    websocket, project_id, user, user_content, req_id, t_msg, agent_config_override
                 )
 
     except WebSocketDisconnect:
@@ -259,6 +262,7 @@ async def _run_standard_pipeline(
     user_content: str,
     req_id: str,
     t_msg: float,
+    agent_config_override: dict | None = None,  # F5
 ):
     async with AsyncSessionLocal() as db:
         # 1. Save user message
@@ -289,15 +293,30 @@ async def _run_standard_pipeline(
         log.info("[PIPELINE:%s] 4_ORCHESTRATE alma=%s intent=%s", req_id, decision.get("selected_alma"), intent)
 
         # 5. Select Alma
-        from app.agents.almas.base_alma import get_alma_by_name, ALMA_REGISTRY
-        alma_name = (
-            state.active_methodological_alma
-            if decision.get("selected_alma") == "METHODOLOGICAL"
-            else state.active_theoretical_alma
-        )
-        alma = get_alma_by_name(alma_name) or (
-            next(iter(ALMA_REGISTRY.values()), None) if ALMA_REGISTRY else None
-        )
+        from app.agents.almas.base_alma import get_alma_by_name, ALMA_REGISTRY, StatelessAlma
+        from app.models.agent_config import AgentConfig
+
+        alma = None
+        alma_name = ""
+
+        if agent_config_override:
+            try:
+                config_obj = AgentConfig(**agent_config_override)
+                alma = StatelessAlma(config_obj)
+                alma_name = config_obj.name
+                log.info("[PIPELINE:%s] Using StatelessAlma override: %s", req_id, alma_name)
+            except Exception as e:
+                log.error("[PIPELINE:%s] Invalid agent_config_override: %s", req_id, e)
+
+        if not alma:
+            alma_name = (
+                state.active_methodological_alma
+                if decision.get("selected_alma") == "METHODOLOGICAL"
+                else state.active_theoretical_alma
+            )
+            alma = get_alma_by_name(alma_name) or (
+                next(iter(ALMA_REGISTRY.values()), None) if ALMA_REGISTRY else None
+            )
 
         # 5.1 Enforce search if intent is SEARCH
         if intent == "SEARCH" and state.orchestrator_directive:
@@ -307,9 +326,17 @@ async def _run_standard_pipeline(
         # 6. Stream alma response with tool handling
         full_response = ""
         if alma:
-            async for chunk in alma.stream_response(state, websocket):
-                full_response += chunk
-                await websocket.send_text(json.dumps({"type": "chunk", "text": chunk}))
+            from app.services.action_parser import parse_action_stream_async
+            
+            async for event in parse_action_stream_async(alma.stream_response(state, websocket)):
+                if event["event"] == "text":
+                    full_response += event["data"]
+                    await websocket.send_text(json.dumps({"type": "chunk", "text": event["data"]}))
+                elif event["event"] == "action":
+                    await websocket.send_text(json.dumps({
+                        "type": "action", 
+                        "token": event["data"].model_dump()
+                    }))
         else:
             full_response = "Nenhuma Alma foi selecionada para este projeto ainda."
             await websocket.send_text(json.dumps({"type": "chunk", "text": full_response}))

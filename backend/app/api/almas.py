@@ -38,12 +38,18 @@ async def create_alma_via_genesis(
             
         alma_data = await genesis_service.generate_alma(desc)
         
+        # Robustness: Se o LLM retornar system_prompt como dict, converte para string
+        import json
+        prompt_data = alma_data.get("system_prompt", "")
+        if isinstance(prompt_data, dict):
+            prompt_data = json.dumps(prompt_data, ensure_ascii=False)
+            
         new_alma = EcosystemResource(
             resource_type=ResourceTypeEnum.ALMA,
             name=alma_data["name"],
             description=alma_data["description"],
             alma_type=AlmaTypeEnum(alma_data["type"]),
-            system_prompt=alma_data["system_prompt"],
+            system_prompt=prompt_data,
             personality_descriptor=alma_data["description"][:100],
             is_approved=True
         )

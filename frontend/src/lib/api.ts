@@ -42,10 +42,10 @@ export const authApi = {
 // ── Projects ─────────────────────────────────────────────────────────────────
 
 export const projectsApi = {
-    list: () => request<unknown[]>('/api/projects/'),
+    list: () => request<unknown[]>('/api/projects'),
 
     create: (body: { title: string; domain_area: string; academic_level: string; human_guidelines?: string }) =>
-        request<unknown>('/api/projects/', { method: 'POST', body: JSON.stringify(body) }),
+        request<unknown>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
 
     get: (id: string) => request<unknown>(`/api/projects/${id}`),
 

@@ -122,7 +122,7 @@ async def match_almas_endpoint(
     from app.agents.match_engine import match_almas
 
     await _get_project_or_404(project_id, current_user.id, db)
-    return await match_almas(body.raw_idea)
+    return await match_almas(body.raw_idea, db)
 
 
 @router.post("/{project_id}/select-almas", response_model=ProjectOut)

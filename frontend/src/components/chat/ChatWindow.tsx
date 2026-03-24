@@ -2,6 +2,8 @@
 import { useRef, useEffect, useState } from 'react'
 import { useProjectStore } from '@/store/project'
 import DebatePanel from './DebatePanel'
+import { renderTextWithMath } from '@/components/scientific/MathRenderer'
+
 
 interface Props {
     onSend: (message: string) => void
@@ -197,7 +199,7 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                         {msg.alma_name && (
                             <p className="text-xs text-indigo-400 font-semibold mb-1">{msg.alma_name}</p>
                         )}
-                        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(msg.content)}</p>
                     </div>
                 ))}
 
@@ -231,7 +233,7 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                                 </span>
                             )}
                         </div>
-                        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{turn.content}</p>
+                        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(turn.content)}</p>
                     </div>
                 ))}
 

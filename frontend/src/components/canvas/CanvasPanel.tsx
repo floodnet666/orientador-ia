@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { useProjectStore, CanvasState } from '@/store/project'
 import { projectsApi } from '@/lib/api'
 import EvidenceManager from '@/components/project/EvidenceManager'
+import { WhiteboardCanvas } from '@/components/whiteboard/WhiteboardCanvas'
+
 
 const FIELD_LABELS: Record<string, string> = {
     tema: 'Tema',
@@ -18,8 +20,9 @@ interface Props {
 
 export default function CanvasPanel({ projectId }: Props) {
     const { canvas, updateCanvas, empiricalDocuments } = useProjectStore()
-    const [activeTab, setActiveTab] = useState<'canvas' | 'evidence'>('canvas')
+    const [activeTab, setActiveTab] = useState<'canvas' | 'evidence' | 'whiteboard'>('canvas')
     const [editingField, setEditingField] = useState<string | null>(null)
+
     const [editValue, setEditValue] = useState('')
     const [saving, setSaving] = useState(false)
 
@@ -90,6 +93,12 @@ export default function CanvasPanel({ projectId }: Props) {
                         className={`text-xs font-bold uppercase tracking-widest transition ${activeTab === 'evidence' ? 'text-white border-b-2 border-indigo-500 pb-1' : 'text-slate-500 hover:text-slate-300'}`}
                     >
                         Mesa-Redonda
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('whiteboard')}
+                        className={`text-xs font-bold uppercase tracking-widest transition ${activeTab === 'whiteboard' ? 'text-white border-b-2 border-indigo-500 pb-1' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                        Whiteboard
                     </button>
                 </nav>
                 {activeTab === 'canvas' && (
@@ -187,8 +196,12 @@ export default function CanvasPanel({ projectId }: Props) {
                             </div>
                         </div>
                     </div>
-                ) : (
+                ) : activeTab === 'evidence' ? (
                     <EvidenceManager projectId={projectId} />
+                ) : (
+                    <div className="h-full w-full">
+                        <WhiteboardCanvas />
+                    </div>
                 )}
             </div>
         </div>

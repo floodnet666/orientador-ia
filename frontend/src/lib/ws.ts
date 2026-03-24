@@ -91,6 +91,11 @@ export class ChatSocket {
                 case 'chunk':
                     this.onChunk(data.text)
                     break
+                case 'action':
+                    window.dispatchEvent(
+                        new CustomEvent('chat_action_event', { detail: data.token })
+                    )
+                    break
                 case 'canvas_update':
                     this.onCanvasUpdate(data.canvas || data.updates)
                     break
