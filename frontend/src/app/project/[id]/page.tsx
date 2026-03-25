@@ -100,20 +100,61 @@ export default function ProjectPage() {
         }
     }
 
+    const [chatWidth, setChatWidth] = useState(60) // percentage
+    const isResizing = useRef(false)
+
+    const startResizing = (e: React.MouseEvent) => {
+        isResizing.current = true
+        document.addEventListener('mousemove', handleMouseMove)
+        document.addEventListener('mouseup', stopResizing)
+        document.body.style.cursor = 'col-resize'
+    }
+
+    const stopResizing = () => {
+        isResizing.current = false
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', stopResizing)
+        document.body.style.cursor = 'default'
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+        if (!isResizing.current) return
+        const newWidth = (e.clientX / window.innerWidth) * 100
+        if (newWidth > 20 && newWidth < 80) {
+            setChatWidth(newWidth)
+        }
+    }
+
     return (
-        <main className="flex h-screen bg-slate-900 overflow-hidden">
-            {/* Chat — left 60% */}
-            <section className="flex-1 flex flex-col min-w-0 border-r border-white/10">
-                <header className="px-6 py-4 border-b border-white/10 flex items-center gap-3">
-                    <a href="/dashboard" className="text-slate-400 hover:text-white text-sm transition">← Projetos</a>
-                    <span className="text-white/30">|</span>
-                    <h1 className="text-white font-semibold truncate">{projectTitle || '...'}</h1>
+        <main className="flex h-screen bg-slate-900 overflow-hidden select-none">
+            {/* Chat — Dynamic Width */}
+            <section 
+                className="flex flex-col min-w-0 border-r border-white/5 bg-slate-900/40 relative"
+                style={{ width: `${chatWidth}%` }}
+            >
+                <header className="px-6 py-4 border-b border-white/10 flex items-center gap-3 bg-slate-900/80 backdrop-blur-md z-10">
+                    <a href="/dashboard" className="text-slate-400 hover:text-white text-sm transition flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                        Projetos
+                    </a>
+                    <span className="text-white/10">|</span>
+                    <h1 className="text-white font-medium truncate tracking-tight">{projectTitle || 'Carregando projeto...'}</h1>
                 </header>
-                <ChatWindow onSend={sendMessage} onUpload={handleUpload} isUploading={uploading} />
+                <div className="flex-1 overflow-hidden flex flex-col">
+                    <ChatWindow onSend={sendMessage} onUpload={handleUpload} isUploading={uploading} />
+                </div>
             </section>
 
-            {/* Canvas — right 40% */}
-            <section className="w-96 flex-shrink-0">
+            {/* Resizable Divider Handle */}
+            <div
+                onMouseDown={startResizing}
+                className="w-1.5 hover:w-2 bg-transparent hover:bg-indigo-500/30 active:bg-indigo-500/50 cursor-col-resize transition-all duration-200 z-20 flex items-center justify-center group"
+            >
+                <div className="w-[1px] h-8 bg-white/10 group-hover:bg-indigo-400/50 rounded-full" />
+            </div>
+
+            {/* Canvas — Remaining Width */}
+            <section className="flex-1 min-w-0 bg-slate-950/20">
                 <CanvasPanel projectId={id} />
             </section>
         </main>

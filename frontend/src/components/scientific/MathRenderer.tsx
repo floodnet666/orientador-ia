@@ -35,8 +35,12 @@ export function MathRenderer({ formula, displayMode = false, className }: Props)
 export function renderTextWithMath(text: string): React.ReactNode[] {
     if (!text) return [];
     
+    // Limpeza de sinais técnicos internos (como <canvas_signal />)
+    const cleanText = text.replace(/<canvas_signal[^>]*\/>/g, '').trim();
+    if (!cleanText) return [];
+
     // Split por blocos $$...$$ e inline $...$
-    const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+?\$)/g);
+    const parts = cleanText.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+?\$)/g);
     
     return parts.map((part, i) => {
         if (part.startsWith('$$') && part.endsWith('$$')) {
@@ -48,3 +52,4 @@ export function renderTextWithMath(text: string): React.ReactNode[] {
         return <span key={i}>{part}</span>;
     });
 }
+

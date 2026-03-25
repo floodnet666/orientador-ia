@@ -179,13 +179,15 @@ async def _update_canvas(db: AsyncSession, project_id: UUID, fields: dict) -> di
 @router.websocket("/{project_id}/ws")
 async def chat_websocket(websocket: WebSocket, project_id: UUID):
     t_connect = time.perf_counter()
-    await websocket.accept()
-    log.info("[WS] CONNECTED project=%s", project_id)
-
     token = websocket.query_params.get("token")
+    log.info("[WS] TRYING TO CONNECT: project=%s | token=%s", project_id, "PRESENT" if token else "MISSING")
+    
     if not token:
+        log.warning("[WS] CONNECTION REJECTED: Missing token | project=%s", project_id)
         await websocket.close(code=4001)
         return
+
+    await websocket.accept()
 
     from jose import jwt, JWTError
     from app.config import settings
@@ -348,6 +350,19 @@ async def _run_standard_pipeline(
     async def do_canvas_extraction():
         try:
             async with AsyncSessionLocal() as db2:
+                # 8.1 Direct extraction from XML tags (fast & deterministic)
+                import re
+                # Regex flexível: aspas simples/duplas, espaços extras, fechamento opcional /> ou >
+                pattern = r'<canvas_signal\s+field=["\']([^"\']+)["\']\s+value=["\']([^"\']+)["\']\s*/?>'
+                signals = re.findall(pattern, full_response, re.IGNORECASE)
+                direct_updates = {f: v for f, v in signals}
+                
+                if direct_updates:
+                    log.info("[PIPELINE:%s] Direct canvas signals detected: %s", req_id, list(direct_updates.keys()))
+                    updated = await _update_canvas(db2, project_id, direct_updates)
+                    await websocket.send_text(json.dumps({"type": "canvas_update", "canvas": updated}))
+
+                # 8.2 LLM-based extraction (probabilistic fallback)
                 state2 = await _build_graph_state(project_id, user, db2)
                 from app.agents.canvas_extractor import extract_canvas_fields
                 extracted = await extract_canvas_fields(state2)

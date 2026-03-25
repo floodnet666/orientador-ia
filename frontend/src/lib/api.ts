@@ -23,6 +23,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${baseUrl}${path}`, { ...init, headers })
 
     if (!res.ok) {
+        if (res.status === 401 && typeof window !== 'undefined') {
+            localStorage.removeItem('token')
+            window.location.href = '/login'
+        }
         const err = await res.json().catch(() => ({ detail: res.statusText }))
         const errorMsg = Array.isArray(err.detail) ? err.detail.map((e: any) => `${e.loc?.join('.')}: ${e.msg}`).join(', ') : err.detail
         throw new Error(errorMsg || 'Request failed')

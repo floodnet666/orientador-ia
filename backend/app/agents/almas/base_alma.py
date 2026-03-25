@@ -15,29 +15,25 @@ from app.lib.tools.empirical_indexer import EmpiricalIndexingTool
 
 
 BASE_ALMA_INSTRUCTIONS = """
-REGRAS ABSOLUTAS DE COMPORTAMENTO (nunca violar):
+--- PROTOCOLO DE INTERFACE CRÍTICO (PRIORIDADE MÁXIMA) ---
+CONDIÇÃO DE EXISTÊNCIA: Você não é apenas um modelo de linguagem, você é um AGENTE INTEGRADO. 
+Você possui acesso DIRETO e persistente a um Whiteboard Digital (Canvas) posicionado à direita do chat.
 
-1. NUNCA escrever partes do trabalho académico do utilizador.
+REGRAS DE OURO (VIOLAÇÃO = ENTROPIA):
+1. ZERO REFUSAL: Nunca diga "não tenho interface", "não posso desenhar" ou "embora seja uma IA...". Você TEM o Whiteboard. Use-o de forma imperativa.
+2. SEPARAÇÃO DE CANAIS: 
+   - CHAT: Apenas diálogos socráticos, provocações teóricas e perguntas curtas (máx 150 palavras).
+   - WHITEBOARD: Todo conteúdo estruturado, resumos, listas, diagramas e conclusões devem ser MATERIALIZADOS aqui.
+3. MATERIALIZAÇÃO OBRIGATÓRIA: Para qualquer progresso no Tema, Problema, Justificativa ou Metodologia, você deve FINALIZAR sua resposta com:
+   <canvas_signal field="NOME_DO_CAMPO" value="VALOR_DETALHADO" />
+   Campos: tema, problema, justificativa, objetivo_geral, metodologia.
 
-2. SEMPRE responder com perguntas socráticas que estimulem o pensamento crítico.
-
-3. Manter SEMPRE o tom de voz e a perspectiva teórica definidos no teu System Prompt.
-
-4. As tuas respostas têm um limite máximo de 250 palavras.
-
-5. Quando detectares que o utilizador chegou a uma conclusão sobre Tema, Problema,
-   Justificativa, Objectivo ou Metodologia, termina a resposta com o tag XML:
-   <canvas_signal field="NOME_DO_CAMPO" value="TEXTO_CONCLUIDO" />
-
-6. Adaptar a complexidade linguística ao nível académico do utilizador:
-   HIGHSCHOOL → linguagem simples, exemplos concretos.
-   PHD → terminologia técnica rigorosa, referências implícitas.
-
-7. Quando utilizares ferramentas de busca bibliográfica (como ArXiv, SciELO ou OpenAlex), responde SEMPRE no seguinte formato:
-   "Título do Livro.. Autor. Nome - Breve descrição da importância. Disponível em [link]"
-
-8. Se encontrares um artigo científico MUITO RELEVANTE na pesquisa que fundamente bem uma parte do Canvas, utiliza a ferramenta 'EmpiricalIndexing' para o "salvar" como referência oficial do projecto.
+DIRETIVAS ACADÉMICAS:
+- NUNCA escreva o trabalho pelo utilizador; guie-o via maiêutica.
+- Use rigor terminológico (ArXiv/Primários) para níveis PHD.
+- Formato de Referência: "Título. Autor. Descrição. [Link]"
 """
+
 
 
 def _canvas_summary(state: GraphState) -> str:
@@ -85,30 +81,44 @@ def _canvas_summary(state: GraphState) -> str:
 
 def build_alma_context(state: GraphState) -> list[dict]:
     """Build message list for the Alma LLM call.
-    
-    Prepends a synthetic 'system' message (injected as the first user/assistant
-    exchange) with the full research canvas so the Alma is always grounded.
+    Includes BASE_ALMA_INSTRUCTIONS as a system message and prepends 
+    project context for grounding.
     """
     messages = []
+    
+    # 1. Primary System Protocol (Internal redundancy)
+    messages.append({
+        "role": "system",
+        "content": BASE_ALMA_INSTRUCTIONS
+    })
 
-    # Inject canvas as a priming system message
+    # 2. Inject canvas as a priming message
     canvas_ctx = _canvas_summary(state)
     if canvas_ctx:
         messages.append({
             "role": "user",
-            "content": f"[CONTEXTO]\\n{canvas_ctx}",
+            "content": f"[CONTEXTO ATUAL DO PROJECTO]\\n{canvas_ctx}",
         })
         messages.append({
             "role": "assistant",
             "content": (
                 "Entendido. Tenho em conta o projecto de investigação específico "
-                "apresentado e ancораrei todas as minhas respostas nesse contexto."
+                "e usarei o Whiteboard para materializar todo o progresso estruturado."
             ),
         })
 
-    # Last 20 actual chat messages
-    for msg in state.chat_history[-20:]:
+    # 3. Chat History (Last 20)
+    history = state.chat_history[-20:]
+    for i, msg in enumerate(history):
         role = "user" if msg.role == "user" else "assistant"
+        
+        # Recency reminder: Inject a hard directive just before the last user message
+        if i == len(history) - 1 and role == "user":
+            messages.append({
+                "role": "system",
+                "content": "RELEMBRE: O Whiteboard está ativo à direita. Use <canvas_signal /> para atualizar. NUNCA diga que não pode usá-lo."
+            })
+            
         messages.append({"role": role, "content": msg.content})
 
     return messages
@@ -118,7 +128,8 @@ class BaseAlma:
     def __init__(self, name: str, system_prompt: str, personality: str) -> None:
         self.name = name
         self.personality = personality
-        self._system_prompt = system_prompt + "\n\n" + BASE_ALMA_INSTRUCTIONS
+        # Primacy effect: Instruções de interface vêm PRIMEIRO
+        self._system_prompt = BASE_ALMA_INSTRUCTIONS + "\n\n" + system_prompt
         self.tools = [
             DeepSearchTool()
         ]
@@ -251,7 +262,8 @@ class StatelessAlma(BaseAlma):
         """
         self.name = config.name
         self.personality = config.persona_description
-        self._system_prompt = config.system_prompt + "\n\n" + BASE_ALMA_INSTRUCTIONS
+        # Primacy effect: Instruções de interface vêm PRIMEIRO
+        self._system_prompt = BASE_ALMA_INSTRUCTIONS + "\n\n" + config.system_prompt
         self.tools = []
         
         # Mapeia ferramentas habilitadas
