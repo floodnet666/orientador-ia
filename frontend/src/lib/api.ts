@@ -12,7 +12,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init?.headers || {}),
     }
-    const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
+
+    // Dynamic base URL to bypass Next.js proxy in development
+    let baseUrl = API_BASE
+    if (!baseUrl && typeof window !== 'undefined') {
+        baseUrl = `${window.location.protocol}//${window.location.hostname}:8000`
+    }
+
+    const res = await fetch(`${baseUrl}${path}`, { ...init, headers })
     if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }))
         const errorMsg = Array.isArray(err.detail) ? err.detail.map((e: any) => `${e.loc?.join('.')}: ${e.msg}`).join(', ') : err.detail
@@ -20,6 +27,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     return res.json()
 }
+
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -90,17 +98,18 @@ export const empiricalApi = {
         const formData = new FormData()
         formData.append('file', file)
         
-        // Bypass next.js /api proxy (10MB limit in dev) for large uploads
-        const url = typeof window !== 'undefined' 
-            ? `${window.location.protocol}//${window.location.hostname}:8000/api/empirical/${projectId}/upload` 
-            : `${API_BASE}/api/empirical/${projectId}/upload`;
+        let url = API_BASE
+        if (!url && typeof window !== 'undefined') {
+            url = `${window.location.protocol}//${window.location.hostname}:8000`
+        }
 
-        return fetch(url, {
+        return fetch(`${url}/api/empirical/${projectId}/upload`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${getToken()}` },
             body: formData,
         }).then(res => res.json())
     },
+
 
 
     getStatus: (projectId: string, filename: string) => 
@@ -113,29 +122,12 @@ export const empiricalApi = {
 // ── Almas (Genesis & Tooling) ────────────────────────────────────────────────
 
 export const almasApi = {
-    genesis: async (prompt: string) => {
-        // Bypass next.js /api proxy (which has a hardcoded 30s timeout) for this slow request
-        const url = typeof window !== 'undefined' 
-            ? `${window.location.protocol}//${window.location.hostname}:8000/api/almas/genesis` 
-            : `${API_BASE}/api/almas/genesis`;
-        
-        const token = getToken();
-        const res = await fetch(url, {
+    genesis: (prompt: string) =>
+        request<any>('/api/almas/genesis', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { Authorization: `Bearer ${token}` } : {})
-            },
             body: JSON.stringify({ description: prompt }),
-        });
-        
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({ detail: res.statusText }));
-            const errorMsg = Array.isArray(err.detail) ? err.detail.map((e: any) => `${e.loc?.join('.')}: ${e.msg}`).join(', ') : err.detail;
-            throw new Error(errorMsg || 'Genesis request failed');
-        }
-        return res.json();
-    },
+        }),
+
 
     execute: (code: string, context: Record<string, unknown> = {}) =>
         request<any>('/api/almas/execute', {
