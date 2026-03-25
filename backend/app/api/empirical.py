@@ -27,17 +27,25 @@ async def upload_empirical_data(
     
     try:
         if filename.endswith(".pdf"):
-            text = await empirical_processor.process_pdf(content)
+            # Salvamos temporariamente para o pymupdf4llm ler via path
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            try:
+                await empirical_processor.process_pdf_v2(tmp_path, project_id, file.filename)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
         elif filename.endswith(".csv"):
             text = await empirical_processor.process_csv(content)
+            await empirical_processor.index_document(project_id, file.filename, text)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format. Use PDF or CSV.")
         
-        # In a real app, we might want to store the metadata/file record in SQL too.
-        # For MVP, we go straight to indexing in Qdrant associated with the project_id.
-        await empirical_processor.index_document(project_id, file.filename, text)
-        
-        return {"message": f"File {file.filename} processed and indexed successfully."}
+        return {"message": f"File {file.filename} processed and indexed with RAG v2.1.0 successfully."}
+
     except Exception as e:
         log.error("Error processing file %s: %s", file.filename, e)
         raise HTTPException(status_code=500, detail=str(e))

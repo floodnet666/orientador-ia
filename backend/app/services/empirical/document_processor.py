@@ -2,133 +2,121 @@ import os
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
-import fitz  # PyMuPDF
 import pandas as pd
 from io import BytesIO
 
 from qdrant_client import AsyncQdrantClient, models
 from app.config import settings
 from app.services.ollama_client import ollama_client
+from app.services.qdrant_service import (
+    get_qdrant, 
+    EMPIRICAL_COLLECTION, 
+    ensure_empirical_collection,
+    compute_bm25_sparse_vector
+)
+from app.services.pdf_markdown_extractor import extract_markdown_chunks
+from app.services.contextual_enricher import enrich_chunks_with_context, generate_global_summary
+from app.services.hybrid_search import hybrid_search_evidence
 
 log = logging.getLogger("empirical.processor")
 
 class EmpiricalProcessor:
     def __init__(self):
-        self.qdrant = AsyncQdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT, check_compatibility=False)
-        self.collection_name = "empirical_data"
+        self.qdrant = AsyncQdrantClient(host="localhost", port=6333, check_compatibility=False)
+        self.collection_name = EMPIRICAL_COLLECTION
 
     async def ensure_collection(self):
         """Creates the collection if it doesn't exist."""
-        collections = await self.qdrant.get_collections()
-        exists = any(c.name == self.collection_name for c in collections.collections)
-        if not exists:
-            await self.qdrant.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE),
-            )
-            log.info("Created Qdrant collection: %s", self.collection_name)
+        await ensure_empirical_collection()
 
-    async def process_pdf(self, file_content: bytes) -> str:
-        """Extracts text from PDF bytes."""
-        doc = fitz.open(stream=file_content, filetype="pdf")
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        return text
-
-    async def process_csv(self, file_content: bytes) -> str:
-        """Converts CSV to a textual representation."""
-        df = pd.read_csv(BytesIO(file_content))
-        # Simple conversion for LLM consumption
-        return df.to_string()
-
-    async def index_document(self, project_id: UUID, filename: str, content: str):
-        """Chunks, embeds, and stores the document in Qdrant."""
-        project_id_str = str(project_id)
-        await self.ensure_collection()
+    async def process_pdf_v2(self, file_path: str, project_id: UUID, filename: str):
+        """
+        New RAG v2.1.0 Pipeline:
+        1. Extract Markdown (M1)
+        2. Enrich with Context (M2)
+        3. Index with Hybrid Vector (M3)
+        """
+        pid_str = str(project_id)
+        doc_id = f"{pid_str}_{filename}"
         
-    def _chunk_text(self, text: str, max_chars: int = 800, overlap: int = 100) -> List[str]:
-        """Split text into manageable chunks for embeddings."""
-        # Simple recursive character splitting logic
-        if len(text) <= max_chars:
-            return [text.strip()] if text.strip() else []
-            
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + max_chars
-            if end < len(text):
-                # Try to find a good breaking point (newline or period)
-                last_newline = text.rfind("\n", start, end)
-                if last_newline > start + (max_chars // 2):
-                    end = last_newline
-                else:
-                    last_period = text.rfind(". ", start, end)
-                    if last_period > start + (max_chars // 2):
-                        end = last_period + 1
-            
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(chunk)
-            
-            start = end - overlap if end < len(text) else end
-        return chunks
+        # 1. Extração M1
+        log.info("M1: Extraindo Markdown de %s", filename)
+        chunks = extract_markdown_chunks(file_path, doc_id)
+        title_sample = "".join([c.text_raw for c in chunks[:3]])
+        if not title_sample:
+             log.warning("PDF vazio: %s", filename)
+             return
 
-    async def index_document(self, project_id: UUID, filename: str, content: str):
-        """Chunks, embeds, and stores the document in Qdrant."""
-        project_id_str = str(project_id)
-        await self.ensure_collection()
-        
-        # Use robust chunking to stay within embedding context
-        chunks = self._chunk_text(content)
-        if not chunks:
-            log.warning("No content extracted from %s", filename)
-            return
 
+        # 2. Resumo Global e Enriquecimento M2
+        log.info("M2: Gerando contexto situacional via Ollama")
+        global_summary = await generate_global_summary(title_sample)
+        enriched_chunks = await enrich_chunks_with_context(chunks, global_summary)
+
+        # 3. Preparação BM25 (Corpus de tokens)
+        import re
+        corpus_tokens = [
+            re.findall(r'\b[a-záàâãéêíóôõúç]+\b', c.text_raw.lower())
+            for c in enriched_chunks
+        ]
+
+        # 4. Indexação Qdrant M3
+        log.info("M3: Indexando %d chunks enriquecidos no Qdrant", len(enriched_chunks))
         points = []
-        for i, chunk in enumerate(chunks):
-            embedding = await ollama_client.embed(chunk)
+        for i, chunk in enumerate(enriched_chunks):
+            # Vetor Denso do texto enriquecido
+            dense_vec = await ollama_client.embed(chunk.text_enriched)
+            # Vetor Esparso (BM25) do texto original
+            sparse_vec = compute_bm25_sparse_vector(chunk.text_raw, corpus_tokens)
+            
             points.append(models.PointStruct(
-                id=str(UUID(int=abs(hash(f"{project_id}_{filename}_{i}")))),
-                vector=embedding,
+                id=str(UUID(int=abs(hash(chunk.chunk_id)))),
+                vector={
+                    "dense": dense_vec,
+                    "sparse": models.SparseVector(
+                        indices=sparse_vec["indices"],
+                        values=sparse_vec["values"]
+                    )
+                },
                 payload={
-                    "project_id": project_id_str,
+                    "project_id": pid_str,
                     "filename": filename,
-                    "text": chunk,
-                    "type": "empirical_evidence"
+                    "text": chunk.text_enriched, # para RAG (contextualizado)
+                    "text_raw": chunk.text_raw,   # para display
+                    "section_title": chunk.section_title,
+                    "page_number": chunk.page_number,
+                    "type": "empirical_evidence_v2"
                 }
             ))
 
-        if points:
-            await self.qdrant.upsert(
-                collection_name=self.collection_name,
-                points=points
-            )
-            log.info("Indexed %d chunks from %s for project %s", len(points), filename, project_id_str)
+        await self.ensure_collection()
+        await self.qdrant.upsert(
+            collection_name=self.collection_name,
+            points=points
+        )
+        log.info("RAG v2.1.0: Concluída indexação de %s", filename)
 
     async def search_evidence(self, project_id: UUID, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Searches for relevant evidence within a project's uploaded documents."""
-        query_vector = await ollama_client.embed(query)
-        
-        pid_str = str(project_id)
-        results = await self.qdrant.search(
-            collection_name=self.collection_name,
-            query_vector=query_vector,
-            query_filter=models.Filter(
-                must=[
-                    models.FieldCondition(key="project_id", match=models.MatchValue(value=pid_str))
-                ]
-            ),
-            limit=limit
-        )
-        
-        return [
-            {
-                "text": hit.payload["text"],
-                "filename": hit.payload["filename"],
-                "score": hit.score
-            }
-            for hit in results
-        ]
+        """Usa a nova busca híbrida."""
+        return await hybrid_search_evidence(project_id, query, limit)
+
+    # Legado para CSV (mantido por agora)
+    async def process_pdf(self, file_content: bytes) -> str:
+        # Pass-through para manter compatibilidade com a API raw se necessário
+        # Mas recomendável usar process_pdf_v2 com path
+        import fitz
+        doc = fitz.open(stream=file_content, filetype="pdf")
+        return "".join([page.get_text() for page in doc])
+
+    async def process_csv(self, file_content: bytes) -> str:
+        df = pd.read_csv(BytesIO(file_content))
+        return df.to_string()
+
+    async def index_document(self, project_id: UUID, filename: str, content: str):
+        # Fallback legado
+        log.info("Usando indexação legada para %s", filename)
+        # TODO: Migrar CSV para o novo pipeline se necessário
+        pass
 
 empirical_processor = EmpiricalProcessor()
+

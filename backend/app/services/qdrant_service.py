@@ -1,5 +1,14 @@
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import (
+    Distance, 
+    VectorParams, 
+    PointStruct,
+    SparseVectorParams,
+    SparseIndexParams,
+    SparseVector,
+)
+from rank_bm25 import BM25Okapi
+import re
 
 from app.config import settings
 
@@ -26,10 +35,52 @@ async def ensure_almas_collection() -> None:
     if ALMAS_COLLECTION not in names:
         await client.create_collection(
             collection_name=ALMAS_COLLECTION,
-            vectors_config=VectorParams(
-                size=settings.OLLAMA_EMBED_DIMENSIONS, distance=Distance.COSINE
-            ),
+            vectors_config={
+                "dense": VectorParams(
+                    size=settings.OLLAMA_EMBED_DIMENSIONS, 
+                    distance=Distance.COSINE
+                )
+            },
+            sparse_vectors_config={
+                "sparse": SparseVectorParams(
+                    index=SparseIndexParams(on_disk=False)
+                )
+            },
         )
+
+EMPIRICAL_COLLECTION = "empirical_data"
+
+async def ensure_empirical_collection() -> None:
+    client = get_qdrant()
+    existing = await client.get_collections()
+    names = [c.name for c in existing.collections]
+    if EMPIRICAL_COLLECTION not in names:
+        await client.create_collection(
+            collection_name=EMPIRICAL_COLLECTION,
+            vectors_config={
+                "dense": VectorParams(size=768, distance=Distance.COSINE)
+            },
+            sparse_vectors_config={
+                "sparse": SparseVectorParams(
+                    index=SparseIndexParams(on_disk=False)
+                )
+            },
+        )
+
+def compute_bm25_sparse_vector(text: str, corpus_tokens: list[list[str]]) -> dict:
+    """Calcula vector BM25 esparso compatível com Qdrant."""
+    tokens = re.findall(r'\b[a-záàâãéêíóôõúç]+\b', text.lower())
+    if not tokens or not corpus_tokens:
+        return {"indices": [], "values": []}
+    bm25 = BM25Okapi(corpus_tokens)
+    scores = bm25.get_scores(tokens)
+    indices = [i for i, s in enumerate(scores) if s > 0]
+    values = [float(scores[i]) for i in indices]
+    if not values:
+        return {"indices": [], "values": []}
+    max_val = max(values)
+    values = [v / max_val for v in values]
+    return {"indices": indices, "values": values}
 
 
 async def upsert_alma(
