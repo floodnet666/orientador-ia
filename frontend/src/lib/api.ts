@@ -13,13 +13,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         ...(init?.headers || {}),
     }
 
-    // Dynamic base URL to bypass Next.js proxy in development
+    // Dynamic base URL: Bypass Next.js proxy (3000) ONLY if accessing it directly.
+    // If on port 8080 (Nginx) or Ngrok, we don't need (and shouldn't use) the bypass.
     let baseUrl = API_BASE
-    if (!baseUrl && typeof window !== 'undefined') {
+    if (!baseUrl && typeof window !== 'undefined' && window.location.port === '3000') {
         baseUrl = `${window.location.protocol}//${window.location.hostname}:8000`
     }
 
     const res = await fetch(`${baseUrl}${path}`, { ...init, headers })
+
     if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }))
         const errorMsg = Array.isArray(err.detail) ? err.detail.map((e: any) => `${e.loc?.join('.')}: ${e.msg}`).join(', ') : err.detail
@@ -98,12 +100,14 @@ export const empiricalApi = {
         const formData = new FormData()
         formData.append('file', file)
         
+        // Use bypass ONLY if on Next.js dev port 3000
         let url = API_BASE
-        if (!url && typeof window !== 'undefined') {
+        if (!url && typeof window !== 'undefined' && window.location.port === '3000') {
             url = `${window.location.protocol}//${window.location.hostname}:8000`
         }
 
         return fetch(`${url}/api/empirical/${projectId}/upload`, {
+
             method: 'POST',
             headers: { 'Authorization': `Bearer ${getToken()}` },
             body: formData,

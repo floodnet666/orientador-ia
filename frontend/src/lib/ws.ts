@@ -66,11 +66,16 @@ export class ChatSocket {
         let baseUrl = process.env.NEXT_PUBLIC_WS_URL
         if (!baseUrl && typeof window !== 'undefined') {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-            // Bypass Next.js proxy (3000) for WS upgrade support
-            const host = window.location.hostname
-            baseUrl = `${protocol}//${host}:8000`
+            if (window.location.port === '3000') {
+                // Bypass Next.js proxy (3000) for WS upgrade support ONLY in local dev
+                baseUrl = `${protocol}//${window.location.hostname}:8000`
+            } else {
+                // Use standard host (Proxy 8080 or Ngrok)
+                baseUrl = `${protocol}//${window.location.host}`
+            }
         }
         baseUrl = baseUrl || 'ws://localhost:8000'
+
 
 
         const url = `${baseUrl}/api/chat/${this.projectId}/ws?token=${this.token}`
