@@ -1,0 +1,49 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Analyze issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            // Requirement: ANTHROPIC_API_KEY secret must be set in the repo.
+            // This workflow automates academic triage.
+
+            const labels = [];
+            const body = issue.body.toLowerCase();
+
+            if (body.includes('bug') || body.includes('erro') || body.includes('falha')) {
+              labels.push('bug');
+            } else if (body.includes('melhoria') || body.includes('feature') || body.includes('sugestão')) {
+              labels.push('enhancement');
+            } else {
+              labels.push('triage-needed');
+            }
+
+            if (body.includes('urgente') || body.includes('crítico')) {
+              labels.push('priority: high');
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: labels
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `Olá! Eu sou o Assistente de Triagem do Orientador.IA. 🤖\n\nAnalisei o teu pedido e apliquei os rótulos: ${labels.join(', ')}.\n\nUm dos nossos arquitetos juniores ou seniores irá analisar o teu pedido em breve. Por favor, garante que forneceste o contexto académico necessário (Nível, Área, Diretrizes).`
+            });

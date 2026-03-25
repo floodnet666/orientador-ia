@@ -119,11 +119,12 @@ async def startup_event():
             logger.info(f"Model {model}: OK")
 
     # Ensure Qdrant collections exist
-    from app.services.qdrant_service import ensure_almas_collection
+    from app.services.qdrant_service import ensure_almas_collection, ensure_empirical_collection_v2
 
     try:
         await ensure_almas_collection()
-        logger.info("Qdrant almas_catalog collection: OK")
+        await ensure_empirical_collection_v2()
+        logger.info("Qdrant collections (almas + empirical_v2): OK")
     except Exception as e:
         logger.warning(f"Qdrant not available at startup: {e}")
 

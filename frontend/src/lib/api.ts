@@ -94,7 +94,13 @@ export const empiricalApi = {
             headers: { 'Authorization': `Bearer ${getToken()}` },
             body: formData,
         }).then(res => res.json())
-    }
+    },
+
+    getStatus: (projectId: string, filename: string) => 
+        request<{ filename: string; status: string }>(`/api/empirical/${projectId}/status/${filename}`),
+
+    delete: (projectId: string, filename: string) => 
+        request<{ message: string }>(`/api/empirical/${projectId}/documents/${filename}`, { method: 'DELETE' }),
 }
 
 // ── Almas (Genesis & Tooling) ────────────────────────────────────────────────
