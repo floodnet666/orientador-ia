@@ -19,7 +19,7 @@ graph TD
     User --> Frontend[Next.js Dev :3000]
     Proxy --> Frontend
     Proxy --> Backend[Backend FastAPI :8000]
-    Frontend -- "Bypass Proxy (Upload/Genesis)" --> Backend
+    Frontend -- "Bypass Proxy (Upload/WS/Genesis)" --> Backend
     Backend --> DB[(PostgreSQL)]
     Backend --> VectDB[(Qdrant v1.12.1)]
     Backend -- "host.docker.internal" --> LLM[Ollama Host]
@@ -35,7 +35,7 @@ O sistema utiliza um wrapper customizável (`adk.py`) para extração de JSON.
 
 ### 3.2 Document Processing & Upload
 - **Robust Chunking**: Limite manual de 2000 caracteres por chunk antes do embedding para evitar estouro de contexto no Ollama/BERT.
-- **Proxy Bypass (Gargalo C Fix)**: O frontend detecta requisições de upload ou rotas lentas (Genesis) e as direciona diretamente para o backend na porta 8000. Isso evita os limites default de 10MB do `Next.js development proxy` e timeouts de 30s.
+- **Proxy Bypass (Gargalo C Fix)**: O frontend detecta requisições de upload, WebSocket ou rotas lentas (Genesis) e as direciona diretamente para o backend na porta 8000. Isso evita os limites default de 10MB do `Next.js development proxy` e falhas de `protocol upgrade` em WebSockets via rewrites do Next.js.
 
 ---
 
@@ -79,6 +79,6 @@ Realizada em 2026-03-11 para validar a robustez do novo `DebateRunner`:
 ### Histórico de Modificações (Audit Log)
 - 11/03/2026: Refactoring `DebateRunner` para lógica estritamente sequencial, implementação de `Agent.stream`, ajuste de `num_ctx=8192` no Ollama e correção de proxy no `next.config.ts`.
 - 11/03/2026: Adicionado `suppressHydrationWarning` ao `layout.tsx` para evitar erros de mismatch causados por atributos injetados em ambiente de teste/automação.
-- 25/03/2026: Remoção do serviço Ollama do Docker para uso exclusivo da instância do Host. Correção de `OLLAMA_BASE_URL` para `host.docker.internal`. Implementação de bypass de proxy no frontend (`api.ts`) para suportar uploads superiores a 10MB.
+- 25/03/2026: Remoção do serviço Ollama do Docker para uso exclusivo da instância do Host. Correção de `OLLAMA_BASE_URL` para `host.docker.internal`. Implementação de bypass de proxy no frontend (`api.ts` e `ws.ts`) para suportar uploads superiores a 10MB e estabilidade de WebSocket.
 
 *Documentação Técnica - Protocolo DocumentationSphinx*
