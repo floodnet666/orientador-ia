@@ -89,12 +89,19 @@ export const empiricalApi = {
     upload: (projectId: string, file: File) => {
         const formData = new FormData()
         formData.append('file', file)
-        return fetch(`${API_BASE}/api/empirical/${projectId}/upload`, {
+        
+        // Bypass next.js /api proxy (10MB limit in dev) for large uploads
+        const url = typeof window !== 'undefined' 
+            ? `${window.location.protocol}//${window.location.hostname}:8000/api/empirical/${projectId}/upload` 
+            : `${API_BASE}/api/empirical/${projectId}/upload`;
+
+        return fetch(url, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${getToken()}` },
             body: formData,
         }).then(res => res.json())
     },
+
 
     getStatus: (projectId: string, filename: string) => 
         request<{ filename: string; status: string }>(`/api/empirical/${projectId}/status/${filename}`),

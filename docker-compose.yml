@@ -27,20 +27,6 @@ services:
     volumes:
       - redis_data:/data
 
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_NUM_PARALLEL=1
-    # Para usar GPU:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [ gpu ]
-
   backend:
     build: ./backend
     ports:
@@ -49,7 +35,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://orientador:orientador_pass@postgres:5432/orientador_db
       - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - QDRANT_HOST=qdrant
     depends_on:
       postgres:
@@ -57,8 +43,6 @@ services:
       qdrant:
         condition: service_started
       redis:
-        condition: service_started
-      ollama:
         condition: service_started
     volumes:
       - ./backend/app:/app/app # Hot reload em desenvolvimento
@@ -92,4 +76,4 @@ volumes:
   postgres_data:
   qdrant_data:
   redis_data:
-  ollama_data:
+
