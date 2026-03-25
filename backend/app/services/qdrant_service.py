@@ -1,4 +1,6 @@
 from qdrant_client import AsyncQdrantClient, models
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="qdrant_client")
 from qdrant_client.models import (
     Distance, 
     VectorParams, 
@@ -31,6 +33,7 @@ def get_qdrant() -> AsyncQdrantClient:
 
 
 ALMAS_COLLECTION = "almas_catalog"
+EMPIRICAL_COLLECTION = "empirical_data_v2"
 
 
 async def ensure_almas_collection() -> None:
@@ -186,6 +189,39 @@ async def upsert_empirical_chunk(
                     "page_number": chunk.page_number,
                     "bbox": chunk.bbox,
                     "type": "empirical_evidence_v2"
+                }
+            )
+        ]
+    )
+
+async def index_alma(alma_model) -> None:
+    """Indexes an Alma (Agent) in the ALMAS_COLLECTION for the Match Engine."""
+    client = get_qdrant()
+    await ensure_almas_collection()
+    
+    # Generate a deterministic ID for the Alma
+    h = hashlib.md5(f"alma_{alma_model.id}".encode()).hexdigest()
+    point_id = str(UUID(hex=h))
+    
+    # For now, we use a simple empty dense vector if not provided,
+    # or we could embed the description. To keep it safe and matching the
+    # collection config (COSINE), we'll use a zeros vector of the correct dimension.
+    # In a real scenario, we'd use ollama_client.embed(alma_model.description)
+    import numpy as np
+    dummy_vector = np.zeros(settings.OLLAMA_EMBED_DIMENSIONS).tolist()
+    
+    await client.upsert(
+        collection_name=ALMAS_COLLECTION,
+        points=[
+            PointStruct(
+                id=point_id,
+                vector={"dense": dummy_vector},
+                payload={
+                    "name": alma_model.name,
+                    "description": alma_model.description,
+                    "type": alma_model.resource_type.value if hasattr(alma_model.resource_type, 'value') else str(alma_model.resource_type),
+                    "alma_id": str(alma_model.id),
+                    "is_approved": alma_model.is_approved
                 }
             )
         ]

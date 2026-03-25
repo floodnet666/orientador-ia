@@ -11,23 +11,21 @@ from app.services.ollama_client import ollama_client
 from app.services.qdrant_service import (
     get_qdrant, 
     EMPIRICAL_COLLECTION, 
-    ensure_empirical_collection,
-    compute_bm25_sparse_vector
+    ensure_empirical_collection_v2
 )
 from app.services.pdf_markdown_extractor import extract_markdown_chunks
 from app.services.contextual_enricher import enrich_chunks_with_context, generate_global_summary
-from app.services.hybrid_search import hybrid_search_evidence
 
 log = logging.getLogger("empirical.processor")
 
 class EmpiricalProcessor:
     def __init__(self):
-        self.qdrant = AsyncQdrantClient(host="localhost", port=6333, check_compatibility=False)
+        self.qdrant = AsyncQdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         self.collection_name = EMPIRICAL_COLLECTION
 
     async def ensure_collection(self):
         """Creates the collection if it doesn't exist."""
-        await ensure_empirical_collection()
+        await ensure_empirical_collection_v2()
 
     async def process_pdf_v2(self, file_path: str, project_id: UUID, filename: str):
         """
@@ -96,6 +94,7 @@ class EmpiricalProcessor:
 
     async def search_evidence(self, project_id: UUID, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Usa a nova busca híbrida."""
+        from app.services.hybrid_search import hybrid_search_evidence
         return await hybrid_search_evidence(project_id, query, limit)
 
     # Legado para CSV (mantido por agora)

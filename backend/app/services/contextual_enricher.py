@@ -10,16 +10,18 @@ from __future__ import annotations
 
 import asyncio
 import httpx
-import os
 from typing import Optional
-
+from app.config import settings
 from app.services.pdf_markdown_extractor import MarkdownChunk
 
 # Respeita OLLAMA_NUM_PARALLEL=1
 _OLLAMA_SEMAPHORE = asyncio.Semaphore(1)
-_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-# Modelo mais leve — já no stack, não requer download
-_CONTEXT_MODEL = "qwen3.5:0.8b"
+_OLLAMA_BASE_URL = settings.OLLAMA_BASE_URL.rstrip("/")
+# Modelo unificado — evita memory swap
+_CONTEXT_MODEL = settings.OLLAMA_CHAT_MODEL
+
+print(f"DEBUG: _OLLAMA_BASE_URL={_OLLAMA_BASE_URL}")
+print(f"DEBUG: _CONTEXT_MODEL={_CONTEXT_MODEL}")
 
 
 async def _generate_situational_context(

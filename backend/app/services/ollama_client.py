@@ -16,7 +16,9 @@ log = logging.getLogger("ollama_client")
 
 class OllamaClient:
     def __init__(self) -> None:
-        self.base_url = settings.OLLAMA_BASE_URL
+        self.base_url = settings.OLLAMA_BASE_URL.rstrip("/")
+        if not self.base_url:
+             self.base_url = "http://localhost:11434"
         # 300s connect, 600s read — Ollama can take minutes on cold model load
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
@@ -91,9 +93,11 @@ class OllamaClient:
             payload["system"] = system
 
         t0 = time.perf_counter()
+        url = f"{self.base_url}/api/chat"
+        print(f"OLLAMA REQUEST URL: {url} | MODEL: {model}")
         log.info("[OLLAMA COMPLETE] model=%s | msg_count=%d | START", model, len(messages))
         try:
-            resp = await self.client.post(f"{self.base_url}/api/chat", json=payload)
+            resp = await self.client.post(url, json=payload)
             resp.raise_for_status()
             content = resp.json()["message"]["content"]
             elapsed = time.perf_counter() - t0
@@ -116,8 +120,10 @@ class OllamaClient:
             raise
 
     async def embed(self, text: str) -> list[float]:
+        url = f"{self.base_url}/api/embeddings"
+        print(f"OLLAMA EMBED URL: {url}")
         resp = await self.client.post(
-            f"{self.base_url}/api/embeddings",
+            url,
             json={"model": settings.OLLAMA_EMBED_MODEL, "prompt": text},
         )
         resp.raise_for_status()

@@ -3,6 +3,7 @@ import time
 import uuid
 import os
 import json
+from app.services.empirical.document_processor import empirical_processor
 # Removed pandas to eliminate environment friction
 
 # Configurações do Teste OMNIFLOW v2.2.0
