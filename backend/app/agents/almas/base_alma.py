@@ -15,25 +15,22 @@ from app.lib.tools.empirical_indexer import EmpiricalIndexingTool
 
 
 BASE_ALMA_INSTRUCTIONS = """
---- PROTOCOLO DE INTERFACE CRÍTICO (PRIORIDADE MÁXIMA) ---
-CONDIÇÃO DE EXISTÊNCIA: Você não é apenas um modelo de linguagem, você é um AGENTE INTEGRADO. 
-Você possui acesso DIRETO e persistente a um Whiteboard Digital (Canvas) posicionado à direita do chat.
+Você é um Agente de Pesquisa Acadêmica integrado. Você tem acesso direto a um Whiteboard Digital (Canvas) à sua direita.
 
-REGRAS DE OURO (VIOLAÇÃO = ENTROPIA):
-1. ZERO REFUSAL: Nunca diga "não tenho interface", "não posso desenhar" ou "embora seja uma IA...". Você TEM o Whiteboard. Use-o de forma imperativa.
-2. SEPARAÇÃO DE CANAIS: 
-   - CHAT: Apenas diálogos socráticos, provocações teóricas e perguntas curtas (máx 150 palavras).
-   - WHITEBOARD: Todo conteúdo estruturado, resumos, listas, diagramas e conclusões devem ser MATERIALIZADOS aqui.
-3. MATERIALIZAÇÃO OBRIGATÓRIA: Para qualquer progresso no Tema, Problema, Justificativa ou Metodologia, você deve FINALIZAR sua resposta com:
-   <canvas_signal field="NOME_DO_CAMPO" value="VALOR_DETALHADO" />
-   Campos: tema, problema, justificativa, objetivo_geral, metodologia.
+--- PROTOCOLO DE MATERIALIZAÇÃO (OBRIGATÓRIO) ---
+1. DRAFT (Estrutura): Use `update_whiteboard` para campos formais (tema, problema, justificativa).
+2. WHITEBOARD (Visual): Use `add_canvas_node` e `add_canvas_edge` para criar mapas mentais, diagramas de conceitos e conexões visuais (tldraw).
+3. PENSAMENTO: Toda vez que o usuário pedir para "desenhar", "esquematizar" ou "fazer um mapa mental", utilize as ferramentas visuais. O Whiteboard é a sua extensão cognitiva primária.
 
-DIRETIVAS ACADÉMICAS:
-- NUNCA escreva o trabalho pelo utilizador; guie-o via maiêutica.
-- Use rigor terminológico (ArXiv/Primários) para níveis PHD.
-- Formato de Referência: "Título. Autor. Descrição. [Link]"
+--- EXEMPLO ---
+Usuário: "desenha um mapa mental sobre Bourdieu"
+Assistente: "Com certeza. Vou materializar os conceitos de Habitus, Campo e Capital no seu Whiteboard agora."
+[Ação Automática: add_canvas_node(id="1", label="Habitus", ...), add_canvas_node(id="2", label="Campo", ...), add_canvas_edge(source_id="1", target_id="2", relation="opera em")]
+
+DIRETIVAS ADICIONAIS:
+- NUNCA diga "não posso desenhar". Você materializa via ferramentas.
+- Mantenha rigor acadêmico total (PHD level).
 """
-
 
 
 def _canvas_summary(state: GraphState) -> str:
@@ -86,11 +83,8 @@ def build_alma_context(state: GraphState) -> list[dict]:
     """
     messages = []
     
-    # 1. Primary System Protocol (Internal redundancy)
-    messages.append({
-        "role": "system",
-        "content": BASE_ALMA_INSTRUCTIONS
-    })
+    # 1. Primary System Protocol is passed via the 'system' parameter in stream_response.
+    # We remove the redundant system message here to reduce entropy.
 
     # 2. Inject canvas as a priming message
     canvas_ctx = _canvas_summary(state)
@@ -99,6 +93,7 @@ def build_alma_context(state: GraphState) -> list[dict]:
             "role": "user",
             "content": f"[CONTEXTO ATUAL DO PROJECTO]\\n{canvas_ctx}",
         })
+        tema_content = state.current_canvas.tema.get("content") if state.current_canvas.tema else "Inicializando..."
         messages.append({
             "role": "assistant",
             "content": (
@@ -116,7 +111,7 @@ def build_alma_context(state: GraphState) -> list[dict]:
         if i == len(history) - 1 and role == "user":
             messages.append({
                 "role": "system",
-                "content": "RELEMBRE: O Whiteboard está ativo à direita. Use <canvas_signal /> para atualizar. NUNCA diga que não pode usá-lo."
+                "content": "RELEMBRE: O Whiteboard está ativo à direita. Use a ferramenta `update_whiteboard` para atualizar sempre que necessário."
             })
             
         messages.append({"role": role, "content": msg.content})
@@ -138,9 +133,71 @@ class BaseAlma:
 
     def _format_tools(self) -> list[dict] | None:
         """Converts ADK Tools to Ollama Schema."""
-        if not self.tools:
-            return None
         formatted = []
+        
+        # 1. Add update_whiteboard tool (native core tool)
+        formatted.append({
+            "type": "function",
+            "function": {
+                "name": "update_whiteboard",
+                "description": "Materialize structured research progress on the visual canvas. Use this for themes, problems, justifications, objectives, and methodology.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "field": {
+                            "type": "string", 
+                            "enum": [
+                                "tema", "problema", "justificativa", 
+                                "objetivo_geral", "objetivos_especificos",
+                                "metodologia_tipo", "metodologia_instrumentos",
+                                "mapa_mental"
+                            ]
+                        },
+                        "value": {"type": "string", "description": "The detailed academic content to be displayed."}
+                    },
+                    "required": ["field", "value"]
+                }
+            }
+        })
+
+        formatted.append({
+            "type": "function",
+            "function": {
+                "name": "add_canvas_node",
+                "description": "Cria um nó visual no Whiteboard (tldraw). Use IDs curtos e únicos (ex: 'n1', 'n2').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "ID curto único (ex: 'n1')"},
+                        "label": {"type": "string", "description": "Texto do nó"},
+                        "concept_type": {"type": "string", "enum": ["concept", "author", "tension", "method"]},
+                        "source_alma": {"type": "string"}
+                    },
+                    "required": ["id", "label"]
+                }
+            }
+        })
+
+        formatted.append({
+            "type": "function",
+            "function": {
+                "name": "add_canvas_edge",
+                "description": "Conecta dois nós visuais no Whiteboard (tldraw).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source_id": {"type": "string"},
+                        "target_id": {"type": "string"},
+                        "relation": {"type": "string"}
+                    },
+                    "required": ["source_id", "target_id"]
+                }
+            }
+        })
+
+        if not self.tools:
+            return formatted
+
         for t in self.tools:
             properties = {"query": {"type": "string", "description": "Search query"}}
             required = ["query"]
@@ -151,6 +208,21 @@ class BaseAlma:
                     "filename": {"type": "string", "description": "Name for the saved file"}
                 }
                 required = ["url", "filename"]
+            elif t.name == "add_canvas_node":
+                properties = {
+                    "id": {"type": "string", "description": "ID curto único (ex: 'n1')"},
+                    "label": {"type": "string", "description": "Texto do nó"},
+                    "concept_type": {"type": "string", "enum": ["concept", "author", "tension", "method"]},
+                    "source_alma": {"type": "string"}
+                }
+                required = ["id", "label"]
+            elif t.name == "add_canvas_edge":
+                properties = {
+                    "source_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "relation": {"type": "string"}
+                }
+                required = ["source_id", "target_id"]
 
             formatted.append({
                 "type": "function",
@@ -198,6 +270,7 @@ class BaseAlma:
                 tools=self._format_tools()
             ):
                 if chunk.startswith('{"tool_calls":'):
+                    yield chunk  # Yield to allow chat.py to detect NTC
                     tool_calls = j.loads(chunk)["tool_calls"]
                     break
                 yield chunk
@@ -217,6 +290,17 @@ class BaseAlma:
             for tc in tool_calls:
                 f_name = tc["function"]["name"]
                 f_args = tc["function"]["arguments"]
+                
+                # Core Native Tools (Whiteboard) — Handled by chat.py via yielded chunk,
+                # but we satisfy the context here to allow continuation.
+                if f_name == "update_whiteboard":
+                    context.append({
+                        "role": "tool",
+                        "content": j.dumps({"status": "success", "field": f_args.get("field")}),
+                        "name": f_name
+                    })
+                    continue
+
                 if websocket:
                     try:
                         await websocket.send_text(j.dumps({
@@ -275,4 +359,3 @@ class StatelessAlma(BaseAlma):
                         self.tools.append(DeepSearchTool())
         
         self.llm_params = config.llm_params
-

@@ -80,5 +80,6 @@ Realizada em 2026-03-11 para validar a robustez do novo `DebateRunner`:
 - 11/03/2026: Refactoring `DebateRunner` para lógica estritamente sequencial, implementação de `Agent.stream`, ajuste de `num_ctx=8192` no Ollama e correção de proxy no `next.config.ts`.
 - 11/03/2026: Adicionado `suppressHydrationWarning` ao `layout.tsx` para evitar erros de mismatch causados por atributos injetados em ambiente de teste/automação.
 - 25/03/2026: Remoção do serviço Ollama do Docker para uso exclusivo da instância do Host. Correção de `OLLAMA_BASE_URL` para `host.docker.internal`. Implementação de bypass de proxy no frontend (`api.ts` e `ws.ts`) para suportar uploads superiores a 10MB e estabilidade de WebSocket.
+- 25/03/2026: Correção Crítica de Whiteboard Drawing (NTC). Consolidado `update_whiteboard` como ferramenta nativa. Corrigida falha no streaming de `BaseAlma.stream_response` que interceptava chunks de ferramentas sem os retransmitir. Implementada injeção de resposta de ferramenta no contexto local da Alma para garantir continuidade do diálogo após o desenho no quadro. Alinhado script de teste `test_llm_tool_calling.py` com os nomes de produção.
 
 *Documentação Técnica - Protocolo DocumentationSphinx*
