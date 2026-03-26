@@ -28,6 +28,13 @@ class DebateRunner:
         yield {"type": "debate_turn_start", "alma_name": alma_name_1, "role": "PRIMARIA"}
         
         async for chunk in agent1.stream(context.user_message):
+            if chunk.startswith('{"tool_calls":'):
+                try:
+                    data = json.loads(chunk)
+                    for tc in data.get("tool_calls", []):
+                        yield {"type": "debate_action", "alma_name": alma_name_1, "role": "PRIMARIA", "tool_call": tc}
+                except Exception: pass
+                continue
             content1 += chunk
             yield {"type": "debate_chunk", "alma_name": alma_name_1, "content": chunk, "role": "PRIMARIA"}
         
@@ -51,6 +58,13 @@ class DebateRunner:
         yield {"type": "debate_turn_start", "alma_name": alma_name_2, "role": "COMPLEMENTAR"}
         
         async for chunk in agent2.stream(prompt_comp):
+            if chunk.startswith('{"tool_calls":'):
+                try:
+                    data = json.loads(chunk)
+                    for tc in data.get("tool_calls", []):
+                        yield {"type": "debate_action", "alma_name": alma_name_2, "role": "COMPLEMENTAR", "tool_call": tc}
+                except Exception: pass
+                continue
             content2 += chunk
             yield {"type": "debate_chunk", "alma_name": alma_name_2, "content": chunk, "role": "COMPLEMENTAR"}
             
@@ -76,6 +90,13 @@ class DebateRunner:
         yield {"type": "debate_turn_start", "alma_name": alma_name_3, "role": "ANTAGONISTA"}
         
         async for chunk in agent3.stream(prompt_antag):
+            if chunk.startswith('{"tool_calls":'):
+                try:
+                    data = json.loads(chunk)
+                    for tc in data.get("tool_calls", []):
+                        yield {"type": "debate_action", "alma_name": alma_name_3, "role": "ANTAGONISTA", "tool_call": tc}
+                except Exception: pass
+                continue
             content3 += chunk
             yield {"type": "debate_chunk", "alma_name": alma_name_3, "content": chunk, "role": "ANTAGONISTA"}
 
@@ -103,11 +124,25 @@ class DebateRunner:
                 tools=[]
             )
 
+        from app.lib.adk import Tool
+        
+        # New Visual Tools
+        canvas_node_tool = Tool(
+            name="add_canvas_node",
+            func=lambda id, label, concept_type="concept", source_alma="": {"status": "success"},
+            description="Cria um nó visual no Whiteboard (tldraw). Use IDs curtos e únicos (ex: 'n1', 'n2')."
+        )
+        canvas_edge_tool = Tool(
+            name="add_canvas_edge",
+            func=lambda source_id, target_id, relation="": {"status": "success"},
+            description="Conecta dois nós visuais no Whiteboard (tldraw)."
+        )
+
         return Agent(
             name=alma_data.name,
             model=settings.OLLAMA_CHAT_MODEL,
             system_prompt=alma_data.system_prompt,
-            tools=[]
+            tools=[whiteboard_tool, canvas_node_tool, canvas_edge_tool]
         )
 
 debate_runner = DebateRunner()

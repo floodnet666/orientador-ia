@@ -1,5 +1,7 @@
 import React, { useCallback, useImperativeHandle, forwardRef } from 'react';
-import { Tldraw, Editor, createShapeId, TLShapeId } from 'tldraw';
+import { Tldraw, Editor, createShapeId, TLShapeId, toRichText } from 'tldraw';
+import { useProjectStore, CanvasState } from '@/store/project';
+import { projectsApi } from '@/lib/api';
 import { useActionStream } from '@/hooks/useActionStream';
 import 'tldraw/tldraw.css';
 
@@ -47,10 +49,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, Props>(
               type: 'text',
               x, y,
               props: {
-                text: `[${action.sourceAlma ?? '?'}]\n${action.label}`,
+                richText: toRichText(`[${action.sourceAlma ?? '?'}]\n${action.label}`),
                 size: 'm',
                 color: _almaColor(action.sourceAlma),
-                align: 'middle',
+                textAlign: 'middle',
               } as any,
             });
             nodeMap.set(action.id, shapeId);
@@ -71,7 +73,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, Props>(
               props: {
                 start: { type: 'binding', boundShapeId: fromId, isExact: false },
                 end:   { type: 'binding', boundShapeId: toId,   isExact: false },
-                text:  action.relation ?? '',
+                richText: toRichText(action.relation ?? ''),
                 color: 'grey',
               } as any,
             });
@@ -116,7 +118,36 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, Props>(
       <div className={className} style={{ width: '100%', height: '100%' }}>
         <Tldraw
           hideUi={readOnly}
-          onMount={(editor) => { editorRef.current = editor; }}
+          onMount={(editor) => { 
+            editorRef.current = editor;
+            
+            // Load persistent state if exists
+            const canvas = useProjectStore.getState().canvas;
+            if (canvas.whiteboard) {
+              try {
+                console.log('[TLDRAW] Loading snapshot from DB');
+                editor.loadSnapshot(canvas.whiteboard);
+              } catch (e) {
+                console.error('[TLDRAW] Snapshot load fail', e);
+              }
+            }
+
+            // Sync changes back to server
+            let saveTimeout: any = null;
+            editor.store.listen((entry) => {
+              if (entry.source === 'user') {
+                if (saveTimeout) clearTimeout(saveTimeout);
+                saveTimeout = setTimeout(async () => {
+                  const snapshot = editor.getSnapshot();
+                  const projectId = useProjectStore.getState().canvas ? (window as any).activeProjectId : null;
+                  if (projectId) {
+                    console.log('[TLDRAW] Auto-saving manually...');
+                    await projectsApi.patchCanvas(projectId, 'whiteboard', snapshot);
+                  }
+                }, 3000); // 3s debounce
+              }
+            });
+        }}
         />
       </div>
     );

@@ -10,7 +10,9 @@
 
 2. A SUA TAREFA SÓ É CONSIDERADA CONCLUÍDA após realizar os testes e executar com sucesso o script `start_orientador.bat`.
 
-3. **Backend**: Usa `uv`, fastapi, sqlalchemy.
-4. **Frontend**: Usa Next.js, React, Tailwind CSS.
+3. **tldraw (Whiteboard)**: Versão 4.5.3+. Usa obrigatoriamente `richText: toRichText(string)` para labels de nós e setas. Propriedade `text` está depreciada e causa `ValidationError`.
+
+4. **Backend**: Usa `uv`, fastapi, sqlalchemy.
+5. **Frontend**: Usa Next.js, React, Tailwind CSS.
 
 NUNCA considere uma tarefa pronta se quebrar o pipeline de CI/Deploy local validado pelo `start_orientador.bat`.

@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation'
 import { projectsApi } from '@/lib/api'
 import Link from 'next/link'
 import GenesisModal from '@/components/dashboard/GenesisModal'
+import { useHelp } from '@/store/HelpContext'
+import HelpTooltip from '@/components/shared/HelpTooltip'
 
 interface Project {
     id: string
@@ -30,6 +32,14 @@ export default function DashboardPage() {
     const [showGenesis, setShowGenesis] = useState(false)
     const [newForm, setNewForm] = useState({ title: '', domain_area: '', academic_level: 'MASTERS' })
     const [creating, setCreating] = useState(false)
+    const { toggleHelpMode, isHelpModeActive, hasSeenOnboarding, completeOnboarding } = useHelp()
+
+    useEffect(() => {
+        if (!loading && !hasSeenOnboarding && projects.length === 0) {
+            // Se o utilizador não tem projetos e nunca viu o onboarding, ativamos a ajuda
+            if (!isHelpModeActive) toggleHelpMode()
+        }
+    }, [loading, hasSeenOnboarding, projects.length])
 
     useEffect(() => {
         if (!localStorage.getItem('token')) {
@@ -70,11 +80,20 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex gap-3">
                         <button
-                            onClick={() => setShowGenesis(true)}
-                            className="text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/10 px-4 py-2 rounded-lg text-sm transition"
+                            onClick={toggleHelpMode}
+                            className={`p-2 rounded-lg transition-colors ${isHelpModeActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-white/5'}`}
+                            title="Modo Ajuda"
                         >
-                            ✨ Génesis
+                            ⁉️
                         </button>
+                        <HelpTooltip content="O Génesis cria uma Alma personalizada do zero com base na sua necessidade.">
+                            <button
+                                onClick={() => setShowGenesis(true)}
+                                className="text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/10 px-4 py-2 rounded-lg text-sm transition"
+                            >
+                                ✨ Génesis
+                            </button>
+                        </HelpTooltip>
                         <button
                             id="logout-button"
                             onClick={() => { localStorage.removeItem('token'); router.push('/login') }}
@@ -82,15 +101,29 @@ export default function DashboardPage() {
                         >
                             Sair
                         </button>
-                        <button
-                            id="new-project-button"
-                            onClick={() => setShowNew(true)}
-                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg text-sm transition"
-                        >
-                            + Novo Projeto
-                        </button>
+                        <HelpTooltip content="Inicie um novo projeto de investigação aqui.">
+                            <button
+                                id="new-project-button"
+                                onClick={() => setShowNew(true)}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg text-sm transition"
+                            >
+                                + Novo Projeto
+                            </button>
+                        </HelpTooltip>
                     </div>
                 </header>
+
+                {!hasSeenOnboarding && (
+                    <div className="bg-indigo-600/20 border border-indigo-500/30 rounded-2xl p-6 mb-8 flex items-center justify-between">
+                        <div>
+                            <h2 className="text-white font-bold text-lg">Bem-vindo ao Orientador.IA! 🚀</h2>
+                            <p className="text-indigo-200 text-sm">Ativamos o <b>Modo Ajuda (⁉️)</b> para guiá-lo no seu primeiro projeto. Passe o rato sobre os elementos com brilho azul para aprender.</p>
+                        </div>
+                        <button onClick={completeOnboarding} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition">
+                            Entendi!
+                        </button>
+                    </div>
+                )}
 
                 <GenesisModal
                     isOpen={showGenesis}

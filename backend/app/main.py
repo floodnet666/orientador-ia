@@ -82,9 +82,21 @@ class ObservabilityMiddleware:
 
 app.add_middleware(ObservabilityMiddleware)
 
+origins_list = settings.ALLOWED_ORIGINS.split(",")
+# Garantir que localhost:3000 esteja sempre presente para desenvolvimento local
+base_origins = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080"]
+for o in origins_list:
+    if o and o not in base_origins:
+        base_origins.append(o)
+
+allow_origins = [o for o in base_origins if "*" not in o]
+regex_list = [o.replace(".", "\\.").replace("*", ".*") for o in base_origins if "*" in o]
+allow_origin_regex = f"^({'|'.join(regex_list)})$" if regex_list else None
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS.split(","),
+    allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

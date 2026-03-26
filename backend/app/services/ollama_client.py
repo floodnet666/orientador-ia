@@ -85,27 +85,28 @@ class OllamaClient:
         )
 
     async def chat_complete(
-        self, model: str, messages: list, system: Optional[str] = None
-    ) -> str:
-        """Non-streaming: returns full response string. Logs timing."""
+        self, model: str, messages: list, system: Optional[str] = None, tools: Optional[list] = None
+    ) -> dict:
+        """Non-streaming: returns full message dict. Logs timing."""
         payload: dict = {"model": model, "messages": messages, "stream": False}
         if system:
             payload["system"] = system
+        if tools:
+            payload["tools"] = tools
 
         t0 = time.perf_counter()
         url = f"{self.base_url}/api/chat"
-        print(f"OLLAMA REQUEST URL: {url} | MODEL: {model}")
-        log.info("[OLLAMA COMPLETE] model=%s | msg_count=%d | START", model, len(messages))
+        log.info("[OLLAMA COMPLETE] model=%s | msg_count=%d | tools=%s | START", model, len(messages), bool(tools))
         try:
             resp = await self.client.post(url, json=payload)
             resp.raise_for_status()
-            content = resp.json()["message"]["content"]
+            message = resp.json()["message"]
             elapsed = time.perf_counter() - t0
             log.info(
-                "[OLLAMA COMPLETE] model=%s | DONE in %.2fs | len=%d chars",
-                model, elapsed, len(content),
+                "[OLLAMA COMPLETE] model=%s | DONE in %.2fs | tool_calls=%s",
+                model, elapsed, bool(message.get("tool_calls")),
             )
-            return content
+            return message
         except httpx.TimeoutException as exc:
             elapsed = time.perf_counter() - t0
             log.error(

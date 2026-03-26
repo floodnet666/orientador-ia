@@ -34,6 +34,8 @@ PLAGIARISM_RESPONSE = (
 
 async def check_plagiarism(user_message: str) -> tuple[bool, float]:
     """Retorna (is_violation, confidence). Ignora respostas que não sejam JSON."""
+    if not isinstance(user_message, str):
+        user_message = str(user_message)
     try:
         response = await ollama_client.chat_complete(
             model=settings.OLLAMA_GUARDRAIL_MODEL,

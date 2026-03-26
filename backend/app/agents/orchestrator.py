@@ -4,19 +4,6 @@ from app.lib import adk
 from app.state.graph_state import GraphState
 from app.config import settings
 
-class OrchestratorOutput(BaseModel):
-    """Schema for Maestro Orchestrator output."""
-    selected_alma: Literal["THEORETICAL", "METHODOLOGICAL"] = Field(..., description="A Alma que deve responder")
-    intent: Literal["DIALOG", "SEARCH", "EXTRACTION"] = Field(default="DIALOG", description="A intenção principal detectada")
-    is_plagiarism: bool = Field(..., description="Se a mensagem é um pedido de plágio")
-    directive: str = Field(..., description="Diretiva interna para a Alma")
-
-import re
-import json
-import logging
-
-log = logging.getLogger("orchestrator")
-
 ORCHESTRATOR_SYSTEM_PROMPT = """
 Você é o Maestro (O Maestro), o orquestrador central do Orientador.IA. 
 O seu único papel é analisar a mensagem do utilizador e o GraphState atual para decidir a próxima ação.
@@ -38,6 +25,24 @@ Apenas um objeto JSON seguindo o schema OrchestratorOutput.
 PROIBIDO saudações, explicações ou texto conversacional como "Aqui está a análise...".
 Se falhar em retornar APENAS JSON, o sistema irá crashear.
 """
+
+maestro_agent = adk.Agent(
+    model=settings.OLLAMA_GUARDRAIL_MODEL,
+    system=ORCHESTRATOR_SYSTEM_PROMPT
+)
+
+class OrchestratorOutput(BaseModel):
+    """Schema for Maestro Orchestrator output."""
+    selected_alma: Literal["THEORETICAL", "METHODOLOGICAL"] = Field(..., description="A Alma que deve responder")
+    intent: Literal["DIALOG", "SEARCH", "EXTRACTION"] = Field(default="DIALOG", description="A intenção principal detectada")
+    is_plagiarism: bool = Field(..., description="Se a mensagem é um pedido de plágio")
+    directive: str = Field(..., description="Diretiva interna para a Alma")
+
+import re
+import json
+import logging
+
+log = logging.getLogger("orchestrator")
 
 async def orchestrate(state: GraphState, user_message: str) -> dict:
     """Returns orchestrator decision using ADK Agent."""

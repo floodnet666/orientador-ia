@@ -6,6 +6,7 @@ export interface CanvasState {
     justificativa: { content: string; is_locked: boolean }
     objetivos: { geral: string; especificos: string[] }
     metodologia: { tipo: string; instrumentos: string[] }
+    whiteboard?: any
 }
 
 export interface ChatMessage {

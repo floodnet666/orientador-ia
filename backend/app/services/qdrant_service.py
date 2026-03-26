@@ -206,7 +206,6 @@ async def index_alma(alma_model) -> None:
     # For now, we use a simple empty dense vector if not provided,
     # or we could embed the description. To keep it safe and matching the
     # collection config (COSINE), we'll use a zeros vector of the correct dimension.
-    # In a real scenario, we'd use ollama_client.embed(alma_model.description)
     import numpy as np
     dummy_vector = np.zeros(settings.OLLAMA_EMBED_DIMENSIONS).tolist()
     
@@ -219,10 +218,44 @@ async def index_alma(alma_model) -> None:
                 payload={
                     "name": alma_model.name,
                     "description": alma_model.description,
-                    "type": alma_model.resource_type.value if hasattr(alma_model.resource_type, 'value') else str(alma_model.resource_type),
+                    "alma_type": alma_model.alma_type.value if hasattr(alma_model.alma_type, 'value') else str(alma_model.alma_type),
                     "alma_id": str(alma_model.id),
                     "is_approved": alma_model.is_approved
                 }
             )
         ]
     )
+
+async def search_almas(vector: list[float], alma_type: str = None, top_k: int = 3) -> list[dict]:
+    """Semantic search for Almas based on vector similarity."""
+    client = get_qdrant()
+    await ensure_almas_collection()
+
+    filter_conditions = []
+    if alma_type:
+        filter_conditions.append(
+            models.FieldCondition(
+                key="alma_type",
+                match=models.MatchValue(value=alma_type)
+            )
+        )
+
+    search_result = await client.search(
+        collection_name=ALMAS_COLLECTION,
+        query_vector=("dense", vector),
+        query_filter=models.Filter(must=filter_conditions) if filter_conditions else None,
+        limit=top_k,
+        with_payload=True
+    )
+
+    hits = []
+    for res in search_result:
+        hits.append({
+            "id": res.payload.get("alma_id", str(res.id)),
+            "name": res.payload.get("name", ""),
+            "description": res.payload.get("description", ""),
+            "alma_type": res.payload.get("alma_type", ""),
+            "personality_descriptor": res.payload.get("description", "")[:100],
+            "score": res.score
+        })
+    return hits

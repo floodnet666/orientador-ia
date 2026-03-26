@@ -43,13 +43,17 @@ async def extract_canvas_fields(state: GraphState) -> dict:
     """Returns dict of fields extracted from conversation. Empty if nothing found."""
     history_text = "\n".join(
         f"[{msg.role}] {msg.alma_name or ''}: {msg.content}"
-        for msg in state.chat_history[-10:]
+        for msg in state.chat_history[-15:]
     )
     try:
         response = await ollama_client.chat_complete(
             model=settings.OLLAMA_ORCHESTRATOR_MODEL,
             messages=[{"role": "user", "content": history_text}],
-            system=CANVAS_EXTRACTOR_PROMPT,
+            system=(
+                CANVAS_EXTRACTOR_PROMPT + 
+                "\nINSTRUÇÃO ADICIONAL: Extraia também as conclusões ou resumos estruturados "
+                "propostos pelo Assistant, quando estes refinam o progresso da investigação."
+            ),
         )
         start = response.find("{")
         end = response.rfind("}") + 1

@@ -6,6 +6,8 @@ import { chatApi, projectsApi, empiricalApi } from '@/lib/api'
 import { ChatSocket, DebateCallbacks } from '@/lib/ws'
 import CanvasPanel from '@/components/canvas/CanvasPanel'
 import ChatWindow from '@/components/chat/ChatWindow'
+import { useHelp } from '@/store/HelpContext'
+import HelpTooltip from '@/components/shared/HelpTooltip'
 
 export default function ProjectPage() {
     const { id } = useParams<{ id: string }>()
@@ -13,12 +15,20 @@ export default function ProjectPage() {
     const socketRef = useRef<ChatSocket | null>(null)
     const [projectTitle, setProjectTitle] = useState('')
     const [uploading, setUploading] = useState(false)
+    const { isHelpModeActive, toggleHelpMode } = useHelp()
 
     const _dispatchDebate = (type: string, data: Record<string, unknown>) => {
         window.dispatchEvent(
             new CustomEvent('chat_debate_event', { detail: { type, data } })
         )
     }
+
+    useEffect(() => {
+        if (id) {
+          (window as any).activeProjectId = id;
+        }
+        return () => { (window as any).activeProjectId = null; };
+    }, [id]);
 
     useEffect(() => {
         const token = localStorage.getItem('token')
@@ -138,10 +148,19 @@ export default function ProjectPage() {
                         Projetos
                     </a>
                     <span className="text-white/10">|</span>
-                    <h1 className="text-white font-medium truncate tracking-tight">{projectTitle || 'Carregando projeto...'}</h1>
+                    <h1 className="text-white font-medium truncate tracking-tight flex-1">{projectTitle || 'Carregando projeto...'}</h1>
+                    <button
+                        onClick={toggleHelpMode}
+                        className={`p-1.5 rounded-lg transition-colors text-sm ${isHelpModeActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-white/5'}`}
+                        title="Modo Ajuda"
+                    >
+                        ⁉️ Ajuda
+                    </button>
                 </header>
                 <div className="flex-1 overflow-hidden flex flex-col">
-                    <ChatWindow onSend={sendMessage} onUpload={handleUpload} isUploading={uploading} />
+                    <HelpTooltip content="Aqui pode conversar com as suas Almas. O Maestro orquestra quem responde com base na sua dúvida." position="right">
+                        <ChatWindow onSend={sendMessage} onUpload={handleUpload} isUploading={uploading} />
+                    </HelpTooltip>
                 </div>
             </section>
 
@@ -155,7 +174,9 @@ export default function ProjectPage() {
 
             {/* Canvas — Remaining Width */}
             <section className="flex-1 min-w-0 bg-slate-950/20">
-                <CanvasPanel projectId={id} />
+                <HelpTooltip content="O Whiteboard visualiza o progresso acadêmico. O Maestro atualiza estes campos conforme discutem no chat." position="left">
+                    <CanvasPanel projectId={id} />
+                </HelpTooltip>
             </section>
         </main>
     )

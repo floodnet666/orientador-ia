@@ -9,6 +9,7 @@ class CanvasState(BaseModel):
     justificativa: dict = Field(default_factory=lambda: {"content": "", "is_locked": False})
     objetivos: dict = Field(default_factory=lambda: {"geral": "", "especificos": []})
     metodologia: dict = Field(default_factory=lambda: {"tipo": "", "instrumentos": []})
+    mapa_mental: dict = Field(default_factory=lambda: {"content": "", "is_locked": False})
 
 
 class ChatMessageState(BaseModel):

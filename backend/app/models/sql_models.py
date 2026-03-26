@@ -125,6 +125,7 @@ class ProjectCanvasState(Base):
             "justificativa": {"content": "", "is_locked": False},
             "objetivos": {"geral": "", "especificos": []},
             "metodologia": {"tipo": "", "instrumentos": []},
+            "mapa_mental": {"content": "", "is_locked": False},
         },
     )
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

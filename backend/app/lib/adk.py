@@ -40,25 +40,75 @@ class Agent(Generic[T]):
             
         formatted_tools = []
         for tool in self.tools:
-            # Basic schema derivation: assume one string argument 'query' for simplicity in MVP
-            # A robust implementation would use inspect.signature(tool.func)
-            formatted_tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The search query"
-                            }
-                        },
-                        "required": ["query"]
+            if tool.name == "update_whiteboard":
+                formatted_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "update_whiteboard",
+                        "description": tool.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "field": {
+                                    "type": "string",
+                                    "enum": ["tema", "problema", "justificativa", "objetivo_geral", "objetivos_especificos", "metodologia_tipo", "metodologia_instrumentos", "mapa_mental"]
+                                },
+                                "value": {"type": "string"}
+                            },
+                            "required": ["field", "value"]
+                        }
                     }
-                }
-            })
+                })
+            elif tool.name == "add_canvas_node":
+                formatted_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "add_canvas_node",
+                        "description": tool.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "Unique ID for the node"},
+                                "label": {"type": "string", "description": "Text to display"},
+                                "concept_type": {"type": "string", "enum": ["concept", "author", "tension", "method"]},
+                                "source_alma": {"type": "string"}
+                            },
+                            "required": ["id", "label"]
+                        }
+                    }
+                })
+            elif tool.name == "add_canvas_edge":
+                formatted_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "add_canvas_edge",
+                        "description": tool.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "source_id": {"type": "string"},
+                                "target_id": {"type": "string"},
+                                "relation": {"type": "string"}
+                            },
+                            "required": ["source_id", "target_id"]
+                        }
+                    }
+                })
+            else:
+                formatted_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string"}
+                            },
+                            "required": ["query"]
+                        }
+                    }
+                })
         return formatted_tools
 
     async def stream(self, input_text: str, context: Optional[Dict[str, Any]] = None) -> AsyncIterator[str]:
