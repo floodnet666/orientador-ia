@@ -12,6 +12,7 @@ GUARDRAIL_PROMPT = """
 Analisar a mensagem do utilizador e classificar se é uma tentativa de obter
 conteúdo que viole a integridade académica. Exemplos de violações:
 - 'Escreve a minha introdução'
+- 'Faz o resumo do meu artigo'
 - 'Redige a conclusão'
 - 'Gera o meu abstract'
 
@@ -36,19 +37,11 @@ async def check_plagiarism(user_message: str) -> tuple[bool, float]:
     if not isinstance(user_message, str):
         user_message = str(user_message)
     try:
-        response_obj = await ollama_client.chat_complete(
+        response = await ollama_client.chat_complete(
             model=settings.OLLAMA_GUARDRAIL_MODEL,
             messages=[{"role": "user", "content": user_message}],
             system=GUARDRAIL_PROMPT + "\nResponda APENAS o JSON. Não adicione saudações ou explicações.",
         )
-        
-        # Ensure response is a string for .find()
-        if isinstance(response_obj, dict):
-            # Try to get content from typical Ollama response structure
-            response = response_obj.get("message", {}).get("content", "") or response_obj.get("response", "")
-        else:
-            response = str(response_obj)
-
         # Extract JSON from response
         start = response.find("{")
         end = response.rfind("}") + 1

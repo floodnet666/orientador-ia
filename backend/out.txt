@@ -1,0 +1,43 @@
+D:\orientador.ia\orientador-ia\backend\app\services\empirical\document_processor.py:23: UserWarning: Qdrant client version 1.17.0 is incompatible with server version 1.12.1. Major versions should match and minor version difference must not exceed 1. Set check_compatibility=False to skip version check.
+  self.qdrant = AsyncQdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+INFO:httpx:HTTP Request: POST http://localhost:6333/collections/empirical_data_v2/points/scroll "HTTP/1.1 200 OK"
+INFO:test_query:Using Project ID found: eb7e3761-fe98-4ab8-abde-80c72286c160
+INFO:test_query:Testing Alma response...
+INFO:ollama_client:[OLLAMA STREAM] model=qwen2.5:7b | msg_count=4 | tools=True | START
+INFO:httpx:HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+INFO:ollama_client:[OLLAMA STREAM] model=qwen2.5:7b | FIRST_CHUNK in 0.39s
+INFO:tools.empirical_indexer:Downloading and indexing document from file:artigo-a.pdf (filename: artigo-a)
+ERROR:tools.empirical_indexer:Failed to index document from file:artigo-a.pdf: Request URL is missing an 'http://' or 'https://' protocol.
+INFO:ollama_client:[OLLAMA STREAM] model=qwen2.5:7b | msg_count=6 | tools=True | START
+INFO:httpx:HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+INFO:ollama_client:[OLLAMA STREAM] model=qwen2.5:7b | FIRST_CHUNK in 0.52s
+INFO:tools.empirical_search:Searching empirical data for project eb7e3761-fe98-4ab8-abde-80c72286c160 with query: 'objetivo principal'
+INFO:httpx:HTTP Request: GET http://localhost:6333 "HTTP/1.1 200 OK"
+D:\orientador.ia\orientador-ia\backend\app\services\qdrant_service.py:29: UserWarning: Qdrant client version 1.17.0 is incompatible with server version 1.12.1. Major versions should match and minor version difference must not exceed 1. Set check_compatibility=False to skip version check.
+  _client = AsyncQdrantClient(
+INFO:httpx:HTTP Request: POST http://localhost:11434/api/embeddings "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST http://localhost:6333/collections/empirical_data_v2/points/query "HTTP/1.1 200 OK"
+INFO:ollama_client:[OLLAMA STREAM] model=qwen2.5:7b | msg_count=8 | tools=True | START
+INFO:httpx:HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+INFO:ollama_client:[OLLAMA STREAM] model=qwen2.5:7b | FIRST_CHUNK in 5.46s
+INFO:ollama_client:[OLLAMA STREAM] model=qwen2.5:7b | DONE | chunks=178 | total=40.64s
+INFO:test_query:Alma Response:
+Vamos analisar o documento "artigo-a.pdf" para determinarmos seu objetivo principal. Eu precisarei baixá-lo primeiro antes de podermos examinar o conteúdo.
+
+Eu sugiro usar a função `EmpiricalIndexing` para baixar e indexar o documento no projeto.
+
+{"tool_calls": [{"id": "call_l67lzxjj", "function": {"index": 0, "name": "EmpiricalIndexing", "arguments": {"url": "file:artigo-a.pdf", "filename": "artigo-a"}}}]}Desculpe pela confusão. Vou tentar novamente usando a função `search_evidence` para analisar o conteúdo do arquivo que você enviou, "artigo-a.pdf".
+
+Por favor, permita-me realizar uma pesquisa nos trechos relevantes desse documento.
+{"tool_calls": [{"id": "call_zshxg0ys", "function": {"index": 0, "name": "search_evidence", "arguments": {"query": "objetivo principal"}}}]}Based on the search of the document "artigo -a.pdf", it appears that one of the key objectives in this article is to introduce *Physics-Informed Neural Networks (PINNs)*. These networks are designed to solve supervised learning tasks while respecting any given law of physics described by general nonlinear partial differential equations. Specifically, the authors aim to use PINNs for both data-driven solution and discovery of partial differential equations.
+
+The key points from the document that support this objective include:
+1. The introduction of PINNs as a method that encodes physical laws into neural network architectures.
+2. Demonstrations on how these networks can be used to infer solutions to partial differential equations.
+3. Showing that such models can form fully differentiable surrogate models, making them useful for scientific computing and predictive modeling.
+
+Would you like me to highlight this information in the Whiteboard or add it as a node?
+Consider using the pymupdf_layout package for a greatly improved page layout analysis.
+DEBUG: _OLLAMA_BASE_URL=http://localhost:11434
+DEBUG: _CONTEXT_MODEL=qwen2.5:7b
+OLLAMA EMBED URL: http://localhost:11434/api/embeddings

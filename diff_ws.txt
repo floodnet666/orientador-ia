@@ -1,0 +1,138 @@
+diff --git a/frontend/src/lib/ws.ts b/frontend/src/lib/ws.ts
+index 92e542c..def60c9 100644
+--- a/frontend/src/lib/ws.ts
++++ b/frontend/src/lib/ws.ts
+@@ -5,8 +5,8 @@
+ import { CanvasState } from '@/store/project'
+ 
+ const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
+-const MAX_RECONNECTS = 3
+-const RECONNECT_DELAY_MS = 1500
++const MAX_RECONNECTS = 10
++const RECONNECT_DELAY_MS = 2000
+ 
+ export interface DebatePanel {
+     PRIMARIA: { name: string; rationale?: string }
+@@ -29,6 +29,7 @@ export class ChatSocket {
+     private queue: string[] = []
+     private reconnectCount = 0
+     private closed = false
++    private heartbeatTimer: any = null
+ 
+     private projectId = ''
+     private token = ''
+@@ -66,17 +67,29 @@ export class ChatSocket {
+         let baseUrl = process.env.NEXT_PUBLIC_WS_URL
+         if (!baseUrl && typeof window !== 'undefined') {
+             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+-            baseUrl = `${protocol}//${window.location.host}`
++            if (window.location.port === '3000') {
++                // Bypass Next.js proxy (3000) for WS upgrade support ONLY in local dev
++                baseUrl = `${protocol}//${window.location.hostname}:8000`
++            } else {
++                // Use standard host (Proxy 8080 or Ngrok)
++                baseUrl = `${protocol}//${window.location.host}`
++            }
+         }
+         baseUrl = baseUrl || 'ws://localhost:8000'
+ 
++
++
+         const url = `${baseUrl}/api/chat/${this.projectId}/ws?token=${this.token}`
+         console.log(`[WS] Connecting to ${url}`)
+         this.ws = new WebSocket(url)
+ 
+-        this.ws.onopen = () => {
++        this.ws.onopen = (evt) => {
+             this.reconnectCount = 0
+-            console.log('[WS] OPEN — flushing queue:', this.queue.length, 'msgs')
++            console.log('[WS] OPEN (Event:', evt, ') — flushing queue:', this.queue.length, 'msgs')
++            
++            // Start heartbeat
++            this._startHeartbeat()
++
+             const pending = [...this.queue]
+             this.queue = []
+             pending.forEach(msg => this.ws!.send(msg))
+@@ -131,36 +144,73 @@ export class ChatSocket {
+                 case 'debate_complete':
+                     // Internal — no UI action needed
+                     break
++                case 'pong':
++                    console.debug('[WS] Pong received')
++                    break
+                 default:
+-                    console.log('[WS] Unknown event type:', data.type)
++                    console.warn('[WS] Unknown event type:', data.type, 'payload:', data)
+             }
+         }
+ 
+-        this.ws.onerror = (evt) => {
+-            console.error('[WS] ERROR', evt)
++        this.ws.onerror = (evt: any) => {
++            console.error('[WS] ERROR EVENT DETAILED:', {
++                url: this.ws?.url,
++                readyState: this.ws?.readyState,
++                event: evt,
++                message: evt.message || 'Check network / CORS'
++            })
+             this.onError('WebSocket connection error')
+         }
+ 
+         this.ws.onclose = (evt) => {
+-            console.warn('[WS] CLOSED code=', evt.code, 'reason=', evt.reason)
++            console.warn('[WS] CLOSED code=', evt.code, 'reason=', evt.reason, 'wasClean=', evt.wasClean)
++            this._stopHeartbeat()
++
++            if (evt.code === 1006 || evt.code === 1001) {
++                console.info('[WS] Network interruption or Proxy timeout detected.')
++            }
+             if (!this.closed && this.reconnectCount < MAX_RECONNECTS) {
+                 this.reconnectCount++
+-                console.log(`[WS] Reconnecting attempt ${this.reconnectCount}/${MAX_RECONNECTS}`)
+-                setTimeout(() => this._open(), RECONNECT_DELAY_MS)
++                const delay = RECONNECT_DELAY_MS * Math.min(this.reconnectCount, 5)
++                console.log(`[WS] Reconnecting attempt ${this.reconnectCount}/${MAX_RECONNECTS} in ${delay}ms`)
++                setTimeout(() => this._open(), delay)
+             } else if (!this.closed) {
+-                this.onError('WebSocket disconnected after multiple attempts')
++                this.onError('Conexão perdida. Por favor, recarregue a página se o problema persistir.')
+             }
+         }
+     }
+ 
++    private _startHeartbeat() {
++        this._stopHeartbeat()
++        console.debug('[WS] Starting Heartbeat (15s)')
++        this.heartbeatTimer = setInterval(() => {
++            if (this.ws?.readyState === WebSocket.OPEN) {
++                console.debug('[WS] Sending PING')
++                this.ws.send(JSON.stringify({ type: 'ping' }))
++            } else {
++                console.warn('[WS] Cannot send PING, state=', this.ws?.readyState)
++            }
++        }, 15000)
++    }
++
++    private _stopHeartbeat() {
++        if (this.heartbeatTimer) {
++            clearInterval(this.heartbeatTimer)
++            this.heartbeatTimer = null
++        }
++    }
+     sendMessage(content: string) {
+         const payload = JSON.stringify({ type: 'message', content })
+         if (this.ws?.readyState === WebSocket.OPEN) {
+             console.log('[WS] SEND:', content.slice(0, 60))
+             this.ws.send(payload)
+         } else {
+-            console.warn('[WS] Not open yet (state=', this.ws?.readyState, ') — queuing')
++            console.warn('[WS] CANNOT SEND - READYSTATE:', this.ws?.readyState, ' - QUEUING')
+             this.queue.push(payload)
++            // Se estiver fechado ou fechando, tenta reabrir
++            if (this.ws?.readyState === WebSocket.CLOSED || this.ws?.readyState === WebSocket.CLOSING) {
++                this._open()
++            }
+         }
+     }
+ 

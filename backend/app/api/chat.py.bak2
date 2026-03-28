@@ -121,11 +121,6 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
         if key in canvas_data and isinstance(canvas_data[key], str):
             canvas_data[key] = {"content": canvas_data[key], "is_locked": False}
 
-    # Buscar documentos empíricos do Qdrant (RAG v2.2.0)
-    from app.api.empirical import list_project_documents
-    doc_names = await list_project_documents(project_id, user)
-    empirical_docs = [type('Doc', (), {'filename': name, 'id': name}) for name in doc_names]
-
     return GraphState(
         project_id=str(project_id),
         user_id=str(user.id),
@@ -135,7 +130,7 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
         active_theoretical_alma=theo_name,
         active_methodological_alma=meth_name,
         human_guidelines=project.human_guidelines or "",
-        empirical_documents=empirical_docs
+        empirical_documents=getattr(project, "empirical_documents", [])
     )
 
 
@@ -189,17 +184,6 @@ async def _update_canvas(db: AsyncSession, project_id: UUID, fields: dict) -> di
             canvas_data.setdefault("metodologia", {})["instrumentos"] = value
         elif key == "mapa_mental":
             canvas_data.setdefault("mapa_mental", {})["content"] = value
-        elif key == "canvas_node":
-            mm = canvas_data.setdefault("mapa_mental", {})
-            nodes = mm.setdefault("nodes", [])
-            # Evita duplicados por ID
-            node_id = value.get("id")
-            if not any(n.get("id") == node_id for n in nodes):
-                nodes.append(value)
-        elif key == "canvas_edge":
-            mm = canvas_data.setdefault("mapa_mental", {})
-            edges = mm.setdefault("edges", [])
-            edges.append(value)
 
     canvas_row.canvas_json = canvas_data
     await db.commit()
@@ -259,9 +243,6 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
                 return
 
         log.info("[WS] AUTH OK user=%s | %.2fs", user.email, time.perf_counter() - t_connect)
-        
-        # Enviar evento de conexão bem-sucedida para o frontend
-        await _safe_send_json(websocket, {"type": "connected", "user": user.email})
 
         while True:
             data = await websocket.receive_text()
@@ -341,6 +322,11 @@ async def _run_standard_pipeline(
         # 4. Orchestrate
         from app.agents.orchestrator import orchestrate
         
+        # Buscar documentos empíricos se existirem
+        from app.api.empirical import list_project_documents
+        doc_names = await list_project_documents(project_id, user)
+        state.empirical_documents = [type('Doc', (), {'filename': name, 'id': name}) for name in doc_names]
+        
         decision = await orchestrate(state, user_content)
         intent = decision.get("intent", "DIALOG")
         state.orchestrator_directive = decision.get("directive", "")
@@ -407,8 +393,6 @@ async def _run_standard_pipeline(
                             
                             elif f_name == "add_canvas_node":
                                 log.info("[PIPELINE:%s] NTC execution: add_canvas_node(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_node": f_args})
                                 await _safe_send_json(websocket, {
                                     "type": "action",
                                     "token": {
@@ -416,12 +400,12 @@ async def _run_standard_pipeline(
                                         "payload": f_args
                                     }
                                 })
+                                # Note: Actual shape persistence is handled by frontend auto-save 
+                                # but we could trigger a snapshot request from client here.
                                 log.info("[PIPELINE:%s] Visual node added", req_id)
                             
                             elif f_name == "add_canvas_edge":
                                 log.info("[PIPELINE:%s] NTC execution: add_canvas_edge(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_edge": f_args})
                                 await _safe_send_json(websocket, {
                                     "type": "action",
                                     "token": {
@@ -444,20 +428,6 @@ async def _run_standard_pipeline(
         # 7. Save response
         await _save_message(db, project_id, RoleEnum.ALMA, full_response, alma_name=alma_name)
 
-    # 8. Canvas extraction (background - fallback for 7B models)
-    async def do_canvas_extraction():
-        try:
-            async with AsyncSessionLocal() as db2:
-                state2 = await _build_graph_state(project_id, user, db2)
-                from app.agents.canvas_extractor import extract_canvas_fields
-                extracted = await extract_canvas_fields(state2)
-                if extracted:
-                    updated = await _update_canvas(db2, project_id, extracted)
-                    await _safe_send_json(websocket, {"type": "canvas_update", "canvas": updated})
-        except Exception as exc:
-            log.error("[PIPELINE:%s] CANVAS_EXTRACT ERROR: %s", req_id, exc)
-
-    asyncio.create_task(do_canvas_extraction())
     await _safe_send_json(websocket, {"type": "done"})
     duration_s = time.perf_counter() - t_msg
     log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, duration_s)

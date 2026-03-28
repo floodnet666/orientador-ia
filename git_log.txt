@@ -1,0 +1,15 @@
+d97382a fix(backend): resolve NameError in orchestrator and implement search_almas in qdrant_service; Update maintenance guide
+0e11070 feat: update documentation and refine base_alma tool integration
+25d345c feat: implement double-channel prompting, robust canvas signaling, and 401 auto-redirect. Optimized upload pipeline for 20MB files and stabilized WebSocket handshake.
+5d313a1 fix(api/ws): conditional bypass for Ngrok and 8080 compatibility
+d4a9a2e fix(api): centralized proxy bypass for all frontend requests
+4cb3c55 fix(ws): implement proxy bypass for WebSocket stability
+43d89c8 fix: infra optimization and upload bypass
+2b449d1 fix(config): force qwen2.5:7b model consistency across app and env
+ee8b4f7 perf(infra): increase upload limits to 100MB and improve timeouts for heavy indexing
+3baf7b7 fix(infra): stabilize websocket handshake and ollama timeouts for local hardware
+d89ff8f docs(backend): update README with RAG v2.2.0 fix details
+030c7f5 fix(backend): stabilize Docker environment, fix RAG dependencies, and resolve qdrant-client crashes
+54e832f chore: add E2E Omniflow validation report and final v2.2.0 sync
+1079efe fix(rag): complete architectural fixes and phase 4 verification tests
+48c2b86 feat(RAG): Evolution v2.1.0 - Contextual Ingestion & Hybrid Search (M1-M3)

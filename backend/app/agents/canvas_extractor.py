@@ -41,6 +41,22 @@ Responder EXCLUSIVAMENTE com JSON:
 
 async def extract_canvas_fields(state: GraphState) -> dict:
     """Returns dict of fields extracted from conversation. Empty if nothing found."""
+    import re
+    # 1. Deterministic extraction (fast & cheap)
+    extracted_via_regex = {}
+    signal_pattern = re.compile(r"<canvas_signal\s+field=['\"]([^'\"]+)['\"]\s+value=['\"]([^'\"]+)['\"]\s*(?:/>|></canvas_signal>)", re.IGNORECASE)
+    
+    last_msg = next((m for m in reversed(state.chat_history) if m.role == 'assistant'), None)
+    if last_msg:
+        for match in signal_pattern.finditer(last_msg.content):
+            field = match.group(1).strip()
+            value = match.group(2).strip()
+            extracted_via_regex[field] = value
+            
+    if extracted_via_regex:
+        return extracted_via_regex
+
+    # 2. LLM extraction (fallback for natural language)
     history_text = "\n".join(
         f"[{msg.role}] {msg.alma_name or ''}: {msg.content}"
         for msg in state.chat_history[-15:]

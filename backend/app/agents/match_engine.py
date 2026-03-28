@@ -15,14 +15,19 @@ async def match_almas(raw_idea: str, db: AsyncSession) -> MatchResult:
     """Generate embedding for raw_idea, search Qdrant for top 3 of each type."""
     vector = await generate_embedding(raw_idea)
 
-    theoretical_hits = await search_almas(vector, alma_type="THEORETICAL", top_k=3)
-    methodological_hits = await search_almas(vector, alma_type="METHODOLOGICAL", top_k=3)
+    try:
+        theoretical_hits = await search_almas(vector, alma_type="THEORETICAL", top_k=3)
+        methodological_hits = await search_almas(vector, alma_type="METHODOLOGICAL", top_k=3)
+    except Exception as e:
+        log.warning(f"Qdrant search failed: {e}")
+        theoretical_hits = []
+        methodological_hits = []
 
     # Verificação de Aderência (Threshold) para Almas Teóricas
     max_score = max([hit.get("score", 0.0) for hit in theoretical_hits]) if theoretical_hits else 0.0
     
-    if max_score < 0.65:
-        log.info(f"Low match score ({max_score:.2f}) for theoretical almas. Auto-generating custom Alma for: {raw_idea[:30]}...")
+    if max_score < 0.65 or not theoretical_hits:
+        log.info(f"Low match score ({max_score:.2f}) or no hits for theoretical almas. Auto-generating custom Alma for: {raw_idea[:30]}...")
         try:
             alma_data = await genesis_service.generate_alma(raw_idea)
             

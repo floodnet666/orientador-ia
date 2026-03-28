@@ -23,7 +23,7 @@ Cada chunk de texto é prefixado com metadados contextuais gerados via LLM (`qwe
 
 ### M3: Busca Híbrida (Hybrid Search)
 A indexação no Qdrant agora utiliza dois motores em paralelo:
-1. **Dense Vector (Denso):** `nomic-embed-text` (768d) para busca semântica.
+1. **Dense Vector (Denso):** `nomic-embed-text-v2-moe:latest` (768d) para busca semântica.
 2. **Sparse Vector (Esparso):** BM25 (`rank_bm25`) para busca por palavras-chave exactas e termos técnicos.
 
 ---

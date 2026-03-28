@@ -11,7 +11,6 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-from starlette.websockets import WebSocketState
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,15 +58,6 @@ def _detect_debate_trigger(message: str) -> bool:
 
 def _elapsed(t0: float) -> str:
     return f"{time.perf_counter() - t0:.2f}s"
-
-
-async def _safe_send_json(websocket: WebSocket, data: dict):
-    """Envia JSON apenas se o WebSocket ainda estiver conectado."""
-    if websocket.client_state == WebSocketState.CONNECTED:
-        try:
-            await websocket.send_text(json.dumps(data))
-        except Exception as e:
-            log.debug(f"[WS] Failed to send message: {e}")
 
 
 async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> GraphState:
@@ -121,11 +111,6 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
         if key in canvas_data and isinstance(canvas_data[key], str):
             canvas_data[key] = {"content": canvas_data[key], "is_locked": False}
 
-    # Buscar documentos empíricos do Qdrant (RAG v2.2.0)
-    from app.api.empirical import list_project_documents
-    doc_names = await list_project_documents(project_id, user)
-    empirical_docs = [type('Doc', (), {'filename': name, 'id': name}) for name in doc_names]
-
     return GraphState(
         project_id=str(project_id),
         user_id=str(user.id),
@@ -135,7 +120,6 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
         active_theoretical_alma=theo_name,
         active_methodological_alma=meth_name,
         human_guidelines=project.human_guidelines or "",
-        empirical_documents=empirical_docs
     )
 
 
@@ -159,20 +143,17 @@ async def _save_message(
 
 
 async def _update_canvas(db: AsyncSession, project_id: UUID, fields: dict) -> dict:
-    log.info("[CANVAS] Attempting update for project=%s fields=%s", project_id, fields.keys())
     result = await db.execute(
         select(ProjectCanvasState).where(ProjectCanvasState.project_id == project_id)
     )
     canvas_row = result.scalar_one_or_none()
     if not canvas_row:
-        log.warning("[CANVAS] ProjectCanvasState not found for project=%s", project_id)
         return {}
 
     canvas_data = dict(canvas_row.canvas_json)
     for key, value in fields.items():
         if value is None:
             continue
-        log.debug("[CANVAS] Updating field '%s'", key)
         if key == "tema":
             canvas_data.setdefault("tema", {})["content"] = value
         elif key == "problema":
@@ -187,23 +168,9 @@ async def _update_canvas(db: AsyncSession, project_id: UUID, fields: dict) -> di
             canvas_data.setdefault("metodologia", {})["tipo"] = value
         elif key == "metodologia_instrumentos" and isinstance(value, list):
             canvas_data.setdefault("metodologia", {})["instrumentos"] = value
-        elif key == "mapa_mental":
-            canvas_data.setdefault("mapa_mental", {})["content"] = value
-        elif key == "canvas_node":
-            mm = canvas_data.setdefault("mapa_mental", {})
-            nodes = mm.setdefault("nodes", [])
-            # Evita duplicados por ID
-            node_id = value.get("id")
-            if not any(n.get("id") == node_id for n in nodes):
-                nodes.append(value)
-        elif key == "canvas_edge":
-            mm = canvas_data.setdefault("mapa_mental", {})
-            edges = mm.setdefault("edges", [])
-            edges.append(value)
 
     canvas_row.canvas_json = canvas_data
     await db.commit()
-    log.info("[CANVAS] Update success project=%s", project_id)
     return canvas_data
 
 
@@ -212,36 +179,24 @@ async def _update_canvas(db: AsyncSession, project_id: UUID, fields: dict) -> di
 @router.websocket("/{project_id}/ws")
 async def chat_websocket(websocket: WebSocket, project_id: UUID):
     t_connect = time.perf_counter()
-    headers = dict(websocket.headers)
-    origin = headers.get("origin")
-    host = headers.get("host")
-    ws_version = headers.get("sec-websocket-version")
-    
+    await websocket.accept()
+    log.info("[WS] CONNECTED project=%s", project_id)
+
     token = websocket.query_params.get("token")
-    log.info(
-        "[WS] HANDSHAKE START: project=%s | origin=%s | host=%s | version=%s | token=%s", 
-        project_id, origin, host, ws_version, "PRESENT" if token else "MISSING"
-    )
-    
-    # Validação do Token ANTES do accept para evitar handshakes fantasmas
-    user_id = None
     if not token:
-        log.warning("[WS] REJECTED: Missing token | project=%s", project_id)
+        await websocket.close(code=4001)
         return
-    
-    # Validação JWT
+
     from jose import jwt, JWTError
     from app.config import settings
+
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
         user_id = payload.get("sub")
     except JWTError as exc:
-        log.error("[WS] AUTH FAILED: Invalid token | %s", exc)
+        log.warning("[WS] INVALID TOKEN | %s", exc)
+        await websocket.close(code=4001)
         return
-
-    # Agora sim, aceitamos a conexão
-    await websocket.accept()
-    log.info("[WS] ACCEPTED project=%s | origin=%s", project_id, origin)
 
     try:
         async with AsyncSessionLocal() as db:
@@ -254,27 +209,16 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
                 select(Project).where(Project.id == project_id, Project.user_id == user.id)
             )
             if not project_result.scalar_one_or_none():
-                log.warning("[WS] PROJECT ACCESS DENIED: %s for user %s", project_id, user.email)
                 await websocket.close(code=4003)
                 return
 
         log.info("[WS] AUTH OK user=%s | %.2fs", user.email, time.perf_counter() - t_connect)
-        
-        # Enviar evento de conexão bem-sucedida para o frontend
-        await _safe_send_json(websocket, {"type": "connected", "user": user.email})
 
         while True:
             data = await websocket.receive_text()
             t_msg = time.perf_counter()
             msg_data = json.loads(data)
-            
-            if msg_data.get("type") == "ping":
-                log.debug("[WS] PING received project=%s -> Sending PONG", project_id)
-                await _safe_send_json(websocket, {"type": "pong"})
-                continue
-
             if msg_data.get("type") != "message":
-                log.debug("[WS] Non-message payload project=%s type=%s", project_id, msg_data.get("type"))
                 continue
 
             user_content = msg_data.get("content", "").strip()
@@ -303,7 +247,10 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
         log.info("[WS] DISCONNECTED project=%s | %.1fs", project_id, time.perf_counter() - t_connect)
     except Exception as exc:
         log.error("[WS] UNHANDLED project=%s | %s", project_id, exc, exc_info=True)
-        await _safe_send_json(websocket, {"type": "error", "message": str(exc)})
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
+        except Exception:
+            pass
 
 
 # ─── Standard pipeline ─────────────────────────────────────────────────────────
@@ -323,12 +270,12 @@ async def _run_standard_pipeline(
 
         # 2. Guardrails
         from app.agents.guardrails import check_plagiarism, PLAGIARISM_RESPONSE
-        is_violation, confidence = await check_plagiarism(str(user_content))
+        is_violation, confidence = await check_plagiarism(user_content)
         log.info("[PIPELINE:%s] 2_GUARDRAILS violation=%s conf=%.2f", req_id, is_violation, confidence)
         if is_violation and confidence > 0.7:
             await _save_message(db, project_id, RoleEnum.SYSTEM, PLAGIARISM_RESPONSE)
-            await _safe_send_json(websocket, {"type": "guardrail_block", "text": PLAGIARISM_RESPONSE})
-            await _safe_send_json(websocket, {"type": "done"})
+            await websocket.send_text(json.dumps({"type": "guardrail_block", "text": PLAGIARISM_RESPONSE}))
+            await websocket.send_text(json.dumps({"type": "done"}))
             return
 
         # 3. Build GraphState
@@ -340,7 +287,6 @@ async def _run_standard_pipeline(
 
         # 4. Orchestrate
         from app.agents.orchestrator import orchestrate
-        
         decision = await orchestrate(state, user_content)
         intent = decision.get("intent", "DIALOG")
         state.orchestrator_directive = decision.get("directive", "")
@@ -379,72 +325,26 @@ async def _run_standard_pipeline(
 
         # 6. Stream alma response with tool handling
         full_response = ""
-        import json as j
         if alma:
-            async for chunk in alma.stream_response(state, websocket):
-                # Detect Native Tool Calls (NTC) from OllamaClient
-                if chunk.startswith('{"tool_calls":'):
-                    try:
-                        data = j.loads(chunk)
-                        tool_calls = data.get("tool_calls", [])
-                        log.info("[PIPELINE:%s] NTC RAW: %s", req_id, chunk)
-                        for tc in tool_calls:
-                            f_name = tc.get("function", {}).get("name")
-                            f_args = tc.get("function", {}).get("arguments", {})
-                            
-                            if f_name == "update_whiteboard":
-                                field = f_args.get("field")
-                                value = f_args.get("value")
-                                if field and value:
-                                    log.info("[PIPELINE:%s] NTC execution: update_whiteboard(%s)", req_id, field)
-                                    # Update DB immediately
-                                    updated = await _update_canvas(db, project_id, {field: value})
-                                    # Notify UI
-                                    await _safe_send_json(websocket, {
-                                        "type": "canvas_update", 
-                                        "canvas": updated
-                                    })
-                            
-                            elif f_name == "add_canvas_node":
-                                log.info("[PIPELINE:%s] NTC execution: add_canvas_node(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_node": f_args})
-                                await _safe_send_json(websocket, {
-                                    "type": "action",
-                                    "token": {
-                                        "type": "CANVAS_NODE",
-                                        "payload": f_args
-                                    }
-                                })
-                                log.info("[PIPELINE:%s] Visual node added", req_id)
-                            
-                            elif f_name == "add_canvas_edge":
-                                log.info("[PIPELINE:%s] NTC execution: add_canvas_edge(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_edge": f_args})
-                                await _safe_send_json(websocket, {
-                                    "type": "action",
-                                    "token": {
-                                        "type": "CANVAS_EDGE",
-                                        "payload": f_args
-                                    }
-                                })
-                                log.info("[PIPELINE:%s] Visual edge added", req_id)
-                    except Exception as e:
-                        log.error("[PIPELINE:%s] NTC Processing Error: %s", req_id, e, exc_info=True)
-                    continue
-
-                # Standard text or legacy actions
-                full_response += chunk
-                await _safe_send_json(websocket, {"type": "chunk", "text": chunk})
+            from app.services.action_parser import parse_action_stream_async
+            
+            async for event in parse_action_stream_async(alma.stream_response(state, websocket)):
+                if event["event"] == "text":
+                    full_response += event["data"]
+                    await websocket.send_text(json.dumps({"type": "chunk", "text": event["data"]}))
+                elif event["event"] == "action":
+                    await websocket.send_text(json.dumps({
+                        "type": "action", 
+                        "token": event["data"].model_dump()
+                    }))
         else:
             full_response = "Nenhuma Alma foi selecionada para este projeto ainda."
-            await _safe_send_json(websocket, {"type": "chunk", "text": full_response})
+            await websocket.send_text(json.dumps({"type": "chunk", "text": full_response}))
 
         # 7. Save response
         await _save_message(db, project_id, RoleEnum.ALMA, full_response, alma_name=alma_name)
 
-    # 8. Canvas extraction (background - fallback for 7B models)
+    # 8. Canvas extraction (background)
     async def do_canvas_extraction():
         try:
             async with AsyncSessionLocal() as db2:
@@ -453,12 +353,12 @@ async def _run_standard_pipeline(
                 extracted = await extract_canvas_fields(state2)
                 if extracted:
                     updated = await _update_canvas(db2, project_id, extracted)
-                    await _safe_send_json(websocket, {"type": "canvas_update", "canvas": updated})
+                    await websocket.send_text(json.dumps({"type": "canvas_update", "canvas": updated}))
         except Exception as exc:
             log.error("[PIPELINE:%s] CANVAS_EXTRACT ERROR: %s", req_id, exc)
 
     asyncio.create_task(do_canvas_extraction())
-    await _safe_send_json(websocket, {"type": "done"})
+    await websocket.send_text(json.dumps({"type": "done"}))
     duration_s = time.perf_counter() - t_msg
     log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, duration_s)
     
@@ -534,30 +434,6 @@ async def _run_debate_pipeline(
                                 "type": "canvas_update",
                                 "canvas": canvas_row.canvas_json,
                             }))
-
-                if event["type"] == "debate_action":
-                    tc = event.get("tool_call", {})
-                    f_name = tc.get("function", {}).get("name")
-                    f_args = tc.get("function", {}).get("arguments", {})
-                    
-                    if f_name == "update_whiteboard":
-                        field = f_args.get("field")
-                        value = f_args.get("value")
-                        if field and value:
-                            await _update_canvas(db, project_id, {field: value})
-                            # Canvas update event is already handled by the DB refresh logic below if we wanted, 
-                            # but for debates we usually send a consolidated canvas_update at the end.
-                            # However, for real-time feel, we could send it now.
-                    
-                    elif f_name in ["add_canvas_node", "add_canvas_edge"]:
-                        await websocket.send_text(json.dumps({
-                            "type": "action",
-                            "token": {
-                                "type": "CANVAS_NODE" if f_name == "add_canvas_node" else "CANVAS_EDGE",
-                                "payload": f_args
-                            }
-                        }))
-                        log.info("[DEBATE:%s] Visual action dispatched: %s", req_id, f_name)
 
         # Save each Alma's debate turn as a message in DB
         async with AsyncSessionLocal() as db:

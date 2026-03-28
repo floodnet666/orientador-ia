@@ -19,7 +19,7 @@ A pilha de modelos foi otimizada para eficiência e precisão funcional:
     - Substitui o `mistral:7b`.
     - Modelo ultra-leve (~500MB) para classificação binária rápida de integridade académica.
 
-4.  **Embeddings:** `nomic-embed-text`
+4.  **Embeddings:** `nomic-embed-text-v2-moe:latest`
     - Mantido para representação vetorial multilingue de 768 dimensões.
 
 5.  **Cache & State:** `Redis`

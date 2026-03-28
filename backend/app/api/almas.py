@@ -61,6 +61,27 @@ async def create_alma_via_genesis(
         # Automatically index in Qdrant for Match Engine
         await index_alma(new_alma)
         
+        # Register locally so chat can use it immediately without restart
+        from app.agents.almas.base_alma import register_alma, StatelessAlma
+        from app.models.agent_config import AgentConfig, AgentTool
+        
+        default_tools = [
+            AgentTool(name="openalex_search"),
+            AgentTool(name="rag_query"),
+            AgentTool(name="canvas_write")
+        ]
+        
+        config = AgentConfig(
+            id=str(new_alma.id),
+            name=new_alma.name,
+            persona_description=new_alma.description,
+            system_prompt=prompt_data,
+            epistemological_stance="Custom Generation",
+            conflict_patterns=[],
+            tools=default_tools
+        )
+        register_alma(StatelessAlma(config))
+        
         return {
             "message": "Alma criada e indexada com sucesso!",
             "alma": {

@@ -13,7 +13,7 @@ O Orientador.IA processa dados empíricos (PDF, CSV) através de um pipeline aut
 | **Indexação** | Upsert de pontos com Payload `project_id`. | Qdrant |
 
 ## 3. Embeddings & Vector DB
-- **Modelo**: `nomic-embed-text` via Ollama.
+- **Modelo**: `nomic-embed-text-v2-moe:latest` via Ollama.
 - **Dimensões**: 768.
 - **Métrica de Distância**: Similaridade de Cosseno.
 - **Coleções (Qdrant)**:

@@ -2,12 +2,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from app.lib import adk
 from app.state.graph_state import GraphState
-import re
-import json
-import logging
 from app.config import settings
-
-log = logging.getLogger("orchestrator")
 
 ORCHESTRATOR_SYSTEM_PROMPT = """
 Você é o Maestro (O Maestro), o orquestrador central do Orientador.IA. 
@@ -20,15 +15,22 @@ CLASSIFICAÇÃO DE INTENÇÃO (intent):
 
 REGRAS DE OURO:
 1. SEMPRE a Alma Teórica responde PRIMEIRO no início de um projeto.
-2. Alterne com o Alma Metodológica (METHODOLOGICAL) quando o utilizador perguntar sobre "how-to", "mecanismo", "técnica" ou "metodologia".
+2. Alterne com o Alma Metodológica (METHODOLOGICAL) quando o utilizador perguntar sobre "como fazer", "método", "amostragem" ou "técnica".
 3. Se o utilizador pedir para "procurar", "pesquisar", "encontrar papers", "adicionar documentos" ou "verificar bibliografia", marque intent="SEARCH" e selected_alma="THEORETICAL".
 4. Detete pedidos de plágio: se o utilizador pedir para "escrever o trabalho", marque is_plagiarism=true.
 5. Quando intent="SEARCH", emita uma diretiva clara: "EXECUTE_SEARCH: Pesquisar papers sobre [tema] no ArXiv".
 
 RESPOSTA OBRIGATÓRIA:
 Apenas um objeto JSON seguindo o schema OrchestratorOutput. 
-PROIBIDO saudações, explicações ou texto conversacional.
+PROIBIDO saudações, explicações ou texto conversacional como "Aqui está a análise...".
+Se falhar em retornar APENAS JSON, o sistema irá crashear.
 """
+
+maestro_agent = adk.Agent(
+    name="Maestro",
+    model=settings.OLLAMA_GUARDRAIL_MODEL,
+    system_prompt=ORCHESTRATOR_SYSTEM_PROMPT
+)
 
 class OrchestratorOutput(BaseModel):
     """Schema for Maestro Orchestrator output."""
@@ -37,15 +39,14 @@ class OrchestratorOutput(BaseModel):
     is_plagiarism: bool = Field(..., description="Se a mensagem é um pedido de plágio")
     directive: str = Field(..., description="Diretiva interna para a Alma")
 
+import re
+import json
+import logging
+
+log = logging.getLogger("orchestrator")
+
 async def orchestrate(state: GraphState, user_message: str) -> dict:
     """Returns orchestrator decision using ADK Agent."""
-    # Inicialização preguiçosa do agente para evitar erros de importação global
-    maestro_agent = adk.Agent(
-        "Maestro",
-        settings.OLLAMA_GUARDRAIL_MODEL,
-        ORCHESTRATOR_SYSTEM_PROMPT
-    )
-
     def _val(field) -> str:
         if isinstance(field, dict):
             return field.get("content", "").strip()
@@ -56,6 +57,7 @@ async def orchestrate(state: GraphState, user_message: str) -> dict:
         f"PROBLEMA: {_val(state.current_canvas.problema) or '(não definido)'}"
     )
     
+    # Injetar documentos empíricos para que o Maestro saiba o que está disponível
     empirical_docs = getattr(state, "empirical_documents", [])
     docs_info = "\n".join([f"- {doc.filename} (ID: {doc.id})" for doc in empirical_docs]) if empirical_docs else "Nenhum arquivo anexado."
 
@@ -69,11 +71,17 @@ async def orchestrate(state: GraphState, user_message: str) -> dict:
     }
 
     try:
+        # Garantir que settings é acessível (correção do erro de escopo se necessário)
+        from app.config import settings as config_settings
+        
+        # Run agent but don't force strict validation here yet
+        # We will extract JSON manually to be resilient to fluff
         raw_result = await maestro_agent.run(user_message, context=context)
         
         if isinstance(raw_result, OrchestratorOutput):
             return raw_result.model_dump()
         
+        # If ADK returns a string (fluff + json)
         if isinstance(raw_result, str):
             json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)
             if json_match:
@@ -83,8 +91,8 @@ async def orchestrate(state: GraphState, user_message: str) -> dict:
                 except Exception:
                     pass
 
-        # Fallback se houver falha de parsing
-        is_search = any(k in user_message.lower() for k in ["pesquise", "busque", "papers", "artigos", "bibliografia", "documento"])
+        # Fallback if no JSON found
+        is_search = any(k in user_message.lower() for k in ["pesquise", "busque", "papers", "artigos", "bibliografia"])
         return {
             "selected_alma": "THEORETICAL",
             "intent": "SEARCH" if is_search else "DIALOG",
@@ -93,10 +101,9 @@ async def orchestrate(state: GraphState, user_message: str) -> dict:
         }
     except Exception as e:
         log.error(f"Error in ADK Orchestrate: {e}")
-        # Segundo fallback de segurança
         return {
             "selected_alma": "THEORETICAL",
             "intent": "DIALOG",
             "is_plagiarism": False,
-            "directive": "Peça ao utilizador para esclarecer o ponto da investigação."
+            "directive": "Responde com uma pergunta socrática sobre o tema da investigação."
         }

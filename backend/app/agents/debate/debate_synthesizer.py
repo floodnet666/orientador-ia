@@ -4,8 +4,10 @@ Extracts tensions, consensus, canvas_updates, and final question for user.
 """
 import json
 import logging
+import re
 import time
 from typing import Optional
+from json_repair import repair_json
 
 from pydantic import BaseModel
 
@@ -31,7 +33,13 @@ O que deves produzir:
 3. canvas_updates: extrair texto específico para {"justificativa": "str", "problema": "str"}.
 4. question_for_user: UMA pergunta final que force uma escolha do investigador.
 
-Responda OBRIGATORIAMENTE em JSON seguindo o schema DebateSummary.
+Responda OBRIGATORIAMENTE em JSON puro, sem texto adicional. Schema:
+{
+  "core_tensions": ["tensão 1", "tensão 2"],
+  "points_of_consensus": ["consenso 1"],
+  "canvas_updates": {"justificativa": "...", "problema": "..."},
+  "question_for_user": "..."
+}
 """
 
 debate_synthesizer_agent = adk.Agent(
@@ -64,11 +72,23 @@ async def synthesize_debate(
 
     try:
         summary = await debate_synthesizer_agent.run(prompt)
-        
-        if not isinstance(summary, DebateSummary):
-            raise ValueError("Invalid summary output")
-        log.info("[DEBATE] Synthesizer done in %.2fs | tensions=%d", time.perf_counter() - t0, len(summary.core_tensions))
-        return summary
+
+        if isinstance(summary, DebateSummary):
+            log.info("[DEBATE] Synthesizer done in %.2fs | tensions=%d", time.perf_counter() - t0, len(summary.core_tensions))
+            return summary
+
+        # If ADK returned a raw string, attempt robust JSON repair
+        if isinstance(summary, str):
+            try:
+                repaired = repair_json(summary)
+                if repaired:
+                    parsed = DebateSummary.model_validate_json(repaired)
+                    log.info("[DEBATE] Synthesizer (repaired parse) done in %.2fs", time.perf_counter() - t0)
+                    return parsed
+            except Exception as e:
+                log.debug("[DEBATE] json_repair failed in synthesizer: %s", e)
+
+        raise ValueError(f"Invalid summary output type: {type(summary)}")
 
     except Exception as exc:
         log.warning("DebateSynthesizer failed (%s) — returning empty summary", exc)

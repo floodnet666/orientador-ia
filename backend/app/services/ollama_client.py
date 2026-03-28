@@ -52,10 +52,7 @@ class OllamaClient:
                         if not data.get("done"):
                             # Handle tool calls if present
                             message = data.get("message", {})
-                            if "tool_calls" in message:
-                                yield json.dumps({"tool_calls": message["tool_calls"]})
-                                continue
-
+                            # Handle content if present
                             content = message.get("content", "")
                             if content:
                                 if first_chunk:
@@ -67,6 +64,11 @@ class OllamaClient:
                                     first_chunk = False
                                 chunks += 1
                                 yield content
+
+                            # Handle tool calls if present in the same chunk
+                            if "tool_calls" in message:
+                                yield json.dumps({"tool_calls": message["tool_calls"]})
+                                continue
         except httpx.TimeoutException as exc:
             elapsed = time.perf_counter() - t0
             log.error(
@@ -122,13 +124,17 @@ class OllamaClient:
 
     async def embed(self, text: str) -> list[float]:
         url = f"{self.base_url}/api/embeddings"
-        print(f"OLLAMA EMBED URL: {url}")
-        resp = await self.client.post(
-            url,
-            json={"model": settings.OLLAMA_EMBED_MODEL, "prompt": text},
-        )
-        resp.raise_for_status()
-        return resp.json()["embedding"]
+        try:
+            resp = await self.client.post(
+                url,
+                json={"model": settings.OLLAMA_EMBED_MODEL, "prompt": text},
+            )
+            resp.raise_for_status()
+            return resp.json()["embedding"]
+        except Exception as e:
+            log.error("[OLLAMA EMBED] Failed to generate embedding: %s", e)
+            import numpy as np
+            return np.zeros(settings.OLLAMA_EMBED_DIMENSIONS).tolist()
 
     async def check_model(self, model: str) -> bool:
         try:

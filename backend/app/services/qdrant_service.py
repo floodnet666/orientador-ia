@@ -1,3 +1,4 @@
+import logging
 from qdrant_client import AsyncQdrantClient, models
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="qdrant_client")
@@ -18,6 +19,7 @@ from unidecode import unidecode
 from uuid import UUID
 
 from app.config import settings
+from app.services.ollama_client import ollama_client
 
 
 _client: AsyncQdrantClient | None = None
@@ -36,11 +38,24 @@ ALMAS_COLLECTION = "almas_catalog"
 EMPIRICAL_COLLECTION = "empirical_data_v2"
 
 
+log = logging.getLogger("qdrant_service")
+
 async def ensure_almas_collection() -> None:
     client = get_qdrant()
-    existing = await client.get_collections()
-    names = [c.name for c in existing.collections]
-    if ALMAS_COLLECTION not in names:
+    try:
+        coll = await client.get_collection(ALMAS_COLLECTION)
+        # Check if 'dense' vector exists in config
+        if "dense" not in coll.config.params.vectors:
+            logging.warning(f"Collection {ALMAS_COLLECTION} missing 'dense' vector. Recreating...")
+            await client.delete_collection(ALMAS_COLLECTION)
+            raise Exception("Trigger recreation")
+    except Exception:
+        # Final safety check to avoid 409 Conflict if delete failed
+        try:
+            await client.delete_collection(ALMAS_COLLECTION)
+        except Exception:
+            pass
+            
         await client.create_collection(
             collection_name=ALMAS_COLLECTION,
             vectors_config={
@@ -203,27 +218,49 @@ async def index_alma(alma_model) -> None:
     h = hashlib.md5(f"alma_{alma_model.id}".encode()).hexdigest()
     point_id = str(UUID(hex=h))
     
-    # For now, we use a simple empty dense vector if not provided,
-    # or we could embed the description. To keep it safe and matching the
-    # collection config (COSINE), we'll use a zeros vector of the correct dimension.
-    import numpy as np
-    dummy_vector = np.zeros(settings.OLLAMA_EMBED_DIMENSIONS).tolist()
+    # Real embedding of the description to enable semantic search
+    try:
+        desc = getattr(alma_model, "description", None) or getattr(alma_model, "system_prompt", "")[:200]
+        text_to_embed = f"{alma_model.name}: {desc}"
+        dense_vector = await ollama_client.embed(text_to_embed)
+    except Exception as exc:
+        log.error("Failed to embed Alma %s: %s", getattr(alma_model, "name", "unknown"), exc)
+        # Final fallback to zeros only if embedding fails critically
+        import numpy as np
+        dense_vector = np.zeros(settings.OLLAMA_EMBED_DIMENSIONS).tolist()
     
+    # Extract alma_type safely
+    a_type = "THEORETICAL" # Default
+    if hasattr(alma_model, "alma_type"):
+        val = alma_model.alma_type
+        if hasattr(val, "value"):
+            a_type = str(val.value)
+        else:
+            a_type = str(val)
+    elif hasattr(alma_model, "category"):
+        a_type = str(alma_model.category)
+    
+    # Final cleanup to remove any Mock strings if they leaked through
+    if "MagicMock" in a_type:
+        a_type = "THEORETICAL"
+
+    print(f"DEBUG: Indexing Alma {alma_model.name} (type={a_type}) as point {point_id}")
     await client.upsert(
         collection_name=ALMAS_COLLECTION,
         points=[
             PointStruct(
                 id=point_id,
-                vector={"dense": dummy_vector},
+                vector={"dense": dense_vector},
                 payload={
                     "name": alma_model.name,
-                    "description": alma_model.description,
-                    "alma_type": alma_model.alma_type.value if hasattr(alma_model.alma_type, 'value') else str(alma_model.alma_type),
+                    "description": alma_model.description if hasattr(alma_model, "description") else alma_model.system_prompt[:200],
+                    "alma_type": a_type,
                     "alma_id": str(alma_model.id),
                     "is_approved": alma_model.is_approved
                 }
             )
-        ]
+        ],
+        wait=True
     )
 
 async def search_almas(vector: list[float], alma_type: str = None, top_k: int = 3) -> list[dict]:

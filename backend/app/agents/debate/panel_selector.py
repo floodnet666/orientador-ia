@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.services.ollama_client import ollama_client
 from app.config import settings
 from app.agents.debate.context_analyzer import DebateContext
+from app.services.qdrant_service import search_almas
 
 log = logging.getLogger("debate.panel_selector")
 
@@ -66,17 +67,6 @@ async def select_panel(
     """Select 4 debate Almas from the available registry."""
     t0 = time.perf_counter()
 
-    alma_catalogue = [
-        {
-            "id": str(a.id),
-            "name": a.name,
-            "alma_type": a.alma_type.value if hasattr(a.alma_type, "value") else str(a.alma_type),
-            "personality_descriptor": a.personality_descriptor,
-            "description": a.description[:200],
-        }
-        for a in alma_list
-    ]
-
     # Prepare semantic search probe from context
     search_probe = (
         f"Perspectiva teórica sobre: {context.canvas.get('tema', {}).get('content', '')}. "
@@ -84,84 +74,97 @@ async def select_panel(
         f"Objetivo do debate: {context.debate_intent}"
     )
     
-    try:
-        # 1. Generate embedding for the search probe
-        query_vector = await ollama_client.embed(search_probe)
-        
-        # 2. Search for theoretical almas
-        theoretical_matches = await search_almas(query_vector, "THEORETICAL", top_k=5)
-        
-        # 3. Search for a critical/antagonist perspective
-        antagonist_probe = f"Crítica ou perspectiva divergente sobre: {context.canvas.get('tema', {}).get('content', '')}"
-        antagonist_vector = await ollama_client.embed(antagonist_probe)
-        antagonist_matches = await search_almas(antagonist_vector, "THEORETICAL", top_k=5)
-        
-        # Filter out primary if already set
-        available_theo = [m for m in theoretical_matches if m["name"] != active_theoretical_alma]
-        
-        # Selection Logic:
-        # PRIMARIA
-        if active_theoretical_alma:
-            # Find active alma in matches or DB
-            p_match = next((m for m in theoretical_matches if m["name"] == active_theoretical_alma), None)
-            if p_match:
-                primaria = AlmaRole(alma_id=p_match["id"], alma_name=p_match["name"], selection_rationale="Alma Teórica ativa do projeto.")
-            else:
-                # Fallback to name-based if not in vector store yet
-                primaria = AlmaRole(alma_id=active_theoretical_alma, alma_name=active_theoretical_alma, selection_rationale="Alma Teórica ativa (fallback).")
-        else:
+    # 1. Generate embedding for the search probe
+    query_vector = await ollama_client.embed(search_probe)
+    
+    # 2. Search for theoretical almas
+    theoretical_matches = await search_almas(query_vector, "THEORETICAL", top_k=10)
+    if not theoretical_matches:
+        raise ValueError("No THEORETICAL Almas found in semantic search. Ensure Almas are indexed.")
+    
+    # 3. Search for a critical/antagonist perspective
+    antagonist_probe = f"Crítica ou perspectiva divergente sobre: {context.canvas.get('tema', {}).get('content', '')}"
+    antagonist_vector = await ollama_client.embed(antagonist_probe)
+    antagonist_matches = await search_almas(antagonist_vector, "THEORETICAL", top_k=10)
+    
+    # Filter out primary if already set
+    available_theo = [m for m in theoretical_matches if m["name"].upper() != active_theoretical_alma.upper()]
+    
+    # Selection Logic:
+    # PRIMARIA
+    if active_theoretical_alma:
+        # Attempt 1: exact case-insensitive match
+        primary_alma_match = next(
+            (m for m in theoretical_matches if m["name"].upper() == active_theoretical_alma.upper()),
+            None
+        )
+        # Attempt 2: substring match (e.g., "Raissi" matches "Maziar Raissi")
+        if not primary_alma_match:
+            primary_alma_match = next(
+                (m for m in theoretical_matches if active_theoretical_alma.upper() in m["name"].upper()),
+                None
+            )
+        # Attempt 3: alma_list local search (substring)
+        if not primary_alma_match:
+            p_obj = next(
+                (a for a in alma_list if
+                 active_theoretical_alma.upper() in a.name.upper() or
+                 a.name.upper() in active_theoretical_alma.upper()),
+                None
+            )
+            if p_obj:
+                primary_alma_match = {"id": str(p_obj.id), "name": p_obj.name, "score": 1.0}
+
+        if primary_alma_match:
+            primaria = AlmaRole(alma_id=primary_alma_match["id"], alma_name=primary_alma_match["name"], selection_rationale="Alma Teórica ativa do projeto.")
+        elif context.debate_intent == "FREE_DEBATE" and theoretical_matches:
             p = theoretical_matches[0]
-            primaria = AlmaRole(alma_id=p["id"], alma_name=p["name"], selection_rationale=f"Maior afinidade semântica (score: {p['score']:.2f})")
+            primaria = AlmaRole(alma_id=p["id"], alma_name=p["name"], selection_rationale=f"Alma ativa '{active_theoretical_alma}' não encontrada, usando melhor afinidade (score: {p['score']:.2f}).")
+            log.warning("[DEBATE] Active alma '%s' not found. Using best match: %s", active_theoretical_alma, p["name"])
+        else:
+            raise ValueError(f"Active theoretical alma '{active_theoretical_alma}' not found in registry.")
+    else:
+        p = theoretical_matches[0]
+        primaria = AlmaRole(alma_id=p["id"], alma_name=p["name"], selection_rationale=f"Maior afinidade semântica (score: {p['score']:.2f})")
 
-        # COMPLEMENTAR
-        c = available_theo[0] if available_theo else (theoretical_matches[1] if len(theoretical_matches) > 1 else theoretical_matches[0])
-        complementar = AlmaRole(alma_id=c["id"], alma_name=c["name"], selection_rationale=f"Sinergia temática (score: {c['score']:.2f})")
+    # COMPLEMENTAR — must be different from PRIMARIA
+    available_theo = [m for m in theoretical_matches if m["name"] != primaria.alma_name]
+    if not available_theo:
+        if len(theoretical_matches) > 1:
+            c = next(m for m in theoretical_matches if m["name"] != primaria.alma_name)
+        else:
+            raise ValueError("Insufficient THEORETICAL Almas for a full panel (need at least 2 distinct).")
+    else:
+        c = available_theo[0]
 
-        # ANTAGONISTA
-        # Pick someone different from P and C
-        a_matches = [m for m in antagonist_matches if m["name"] not in [primaria.alma_name, complementar.alma_name]]
-        a = a_matches[0] if a_matches else (antagonist_matches[-1] if antagonist_matches else theoretical_matches[-1])
-        antagonista = AntagonistRole(alma_id=a["id"], alma_name=a["name"], antagonism_angle=f"Tensão crítica detectada (score: {a['score']:.2f})")
+    complementar = AlmaRole(alma_id=c["id"], alma_name=c["name"], selection_rationale=f"Sinergia temática (score: {c['score']:.2f})")
 
-        # METODOLOGICA
-        # (Assuming the methodologist is also indexed or use fallback)
-        metodologica = AlmaRole(
-            alma_id=active_methodological_alma or "avatar_metodologico",
-            alma_name=active_methodological_alma or "Avatar Metodológico",
-            selection_rationale="Suporte metodológico e desenho de instrumentos."
-        )
+    # ANTAGONISTA
+    # Pick someone different from P and C
+    a_matches = [m for m in antagonist_matches if m["name"] not in [primaria.alma_name, complementar.alma_name]]
+    if not a_matches:
+        # Try picking from the general theoretical matches if antagonist-specific failed
+        a_matches = [m for m in theoretical_matches if m["name"] not in [primaria.alma_name, complementar.alma_name]]
+    
+    if not a_matches:
+        raise ValueError("Could not find a distinct ANTAGONISTA alma.")
+        
+    a = a_matches[0]
+    antagonista = AntagonistRole(alma_id=a["id"], alma_name=a["name"], antagonism_angle=f"Tensão crítica detectada (score: {a['score']:.2f})")
 
-        return SelectedPanel(
-            PRIMARIA=primaria,
-            COMPLEMENTAR=complementar,
-            ANTAGONISTA=antagonista,
-            METODOLOGICA=metodologica,
-        )
+    # METODOLOGICA
+    m_alma = active_methodological_alma or "Avatar Metodológico"
+    metodologica = AlmaRole(
+        alma_id=m_alma,
+        alma_name=m_alma,
+        selection_rationale="Suporte metodológico e desenho de instrumentos."
+    )
 
-    except Exception as exc:
-        log.warning("Semantic Search failed (%s) — using fallback sequential assignment", exc)
-        log.info(
-            "[DEBATE] Panel: P=%s C=%s A=%s M=%s in %.2fs",
-            panel.PRIMARIA.alma_name, panel.COMPLEMENTAR.alma_name,
-            panel.ANTAGONISTA.alma_name, panel.METODOLOGICA.alma_name,
-            time.perf_counter() - t0,
-        )
-        return panel
-
-    except Exception as exc:
-        log.warning("PanelSelector failed (%s) — using fallback sequential assignment", exc)
-        # Fallback: use first 4 almas in order THEO, THEO, THEO, METH
-        theoretical = [a for a in alma_list if str(a.alma_type).endswith("THEORETICAL")]
-        methodological = [a for a in alma_list if str(a.alma_type).endswith("METHODOLOGICAL")]
-
-        p = theoretical[0] if len(theoretical) > 0 else alma_list[0]
-        c = theoretical[1] if len(theoretical) > 1 else alma_list[1]
-        a = theoretical[2] if len(theoretical) > 2 else alma_list[2]
-        m = methodological[0] if methodological else alma_list[-1]
-
-        return SelectedPanel(
-            PRIMARIA=AlmaRole(alma_id=str(p.id), alma_name=p.name, selection_rationale="Fallback: primeira alma teórica"),
-            COMPLEMENTAR=AlmaRole(alma_id=str(c.id), alma_name=c.name, selection_rationale="Fallback: segunda alma teórica"),
-            ANTAGONISTA=AntagonistRole(alma_id=str(a.id), alma_name=a.name, antagonism_angle="Perspectiva alternativa"),
-            METODOLOGICA=AlmaRole(alma_id=str(m.id), alma_name=m.name, selection_rationale="Avatar metodológico"),
-        )
+    log.info("[DEBATE] Panel selected in %.2fs: P=%s, C=%s, A=%s", time.perf_counter() - t0, primaria.alma_name, complementar.alma_name, antagonista.alma_name)
+    
+    return SelectedPanel(
+        PRIMARIA=primaria,
+        COMPLEMENTAR=complementar,
+        ANTAGONISTA=antagonista,
+        METODOLOGICA=metodologica,
+    )

@@ -91,5 +91,13 @@ A persistência do Whiteboard não é baseada em nós individuais no SQLite, mas
 - **Causa**: Função `search_almas` referenciada no `match_engine.py` mas não implementada no `qdrant_service.py`. Adicionalmente, havia uma inconsistência entre as chaves `type` e `alma_type` no payload do Qdrant.
 - **Solução**: Implementação da função `search_almas` e padronização da chave para `alma_type` em todo o ciclo de vida do vetor (indexação e busca).
 
+### 5.3 TypeError: Agent.__init__() - Missing 'name' & Unexpected Argument 'system' (Março 2026)
+- **Causa**: O orquestrador tentava inicializar o `adk.Agent` usando a chave `system=` e omitindo o primeiro argumento posicional obrigatório `name`.
+- **Solução**: Atualização da chamada no `orchestrator.py` para incluir `"Maestro"` como nome e usar `system_prompt=` para o prompt do sistema. Isso corrigiu a falha fatal de inicialização do agente.
+
+### 5.4 AttributeError: 'dict' object has no attribute 'find' (Março 2026)
+- **Causa**: O `guardrails.py` assumia que o retorno do Ollama seria sempre uma string. Com a mudança para uma resposta estruturada (dict), a chamada ao `.find()` falhava.
+- **Solução**: Implementação de tratamento de tipo no `guardrails.py` para extrair o `content` do dicionário antes de realizar a busca por JSON. Isso tornou a verificação de plágio resiliente a mudanças na API do modelo.
+
 ---
 *Protocolo DocumentationSphinx - Integridade Zero Bloat*

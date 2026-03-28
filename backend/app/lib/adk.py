@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, Dict, List, Optional, Type, TypeVar, Generic, Union, AsyncIterator
 import logging
 from pydantic import BaseModel
+from app.config import settings
 from app.services.ollama_client import OllamaClient
 
 T = TypeVar("T", bound=BaseModel)
@@ -120,22 +121,32 @@ class Agent(Generic[T]):
         options = {"num_ctx": settings.OLLAMA_NUM_CTX}
         
         for _ in range(3):
-            tool_calls = None
-            async for chunk in self.client.chat_stream(
+            accumulated_tool_calls = []
+            final_content_received = False
+            
+            async for chunk_json in self.client.chat_stream(
                 model=self.model_name, 
                 messages=messages, 
                 system=self.system_prompt,
                 tools=tools_schema,
                 options=options
             ):
-                if chunk.startswith('{"tool_calls":'):
-                    tool_calls = json.loads(chunk)["tool_calls"]
-                    break
-                yield chunk
+                try:
+                    data = json.loads(chunk_json)
+                    text = data.get("text", "")
+                    if text:
+                        yield text
+                    
+                    tcs = data.get("tool_calls", [])
+                    if tcs:
+                        accumulated_tool_calls.extend(tcs)
+                except Exception:
+                    # Fallback if it's not JSON
+                    yield chunk_json
 
-            if tool_calls:
-                messages.append({"role": "assistant", "content": "", "tool_calls": tool_calls})
-                for tc in tool_calls:
+            if accumulated_tool_calls:
+                messages.append({"role": "assistant", "content": "", "tool_calls": accumulated_tool_calls})
+                for tc in accumulated_tool_calls:
                     func_name = tc["function"]["name"]
                     func_args = tc["function"]["arguments"]
                     tool = next((t for t in self.tools if t.name == func_name), None)

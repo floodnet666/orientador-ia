@@ -49,6 +49,7 @@ services:
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
       - ./scripts:/app/scripts
+      - ./../docs:/docs
   frontend:
     build: ./frontend
     command: npm run dev

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     OLLAMA_CHAT_MODEL: str = "qwen2.5:7b"
     OLLAMA_ORCHESTRATOR_MODEL: str = "qwen2.5:7b"
     OLLAMA_GUARDRAIL_MODEL: str = "qwen2.5:7b"
-    OLLAMA_EMBED_MODEL: str = "nomic-embed-text:latest"
+    OLLAMA_EMBED_MODEL: str = "nomic-embed-text-v2-moe:latest"
     OLLAMA_EMBED_DIMENSIONS: int = 768
     OLLAMA_NUM_CTX: int = 8192
 

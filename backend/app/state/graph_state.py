@@ -38,6 +38,9 @@ class GraphState(BaseModel):
     validation_flags: ValidationFlags = Field(default_factory=ValidationFlags)
     human_guidelines: str = ""
 
+    # Documents metadata for orchestration awareness
+    empirical_documents: List[Any] = Field(default_factory=list)
+
     # Debate mode fields
     is_debate_mode: bool = False
     debate_round_number: int = 0

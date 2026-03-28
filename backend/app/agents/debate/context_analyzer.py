@@ -4,6 +4,7 @@ Uses qwen3.5:0.8b for fast JSON classification.
 """
 import json
 import logging
+from json_repair import repair_json
 from typing import Literal, Optional
 
 from pydantic import BaseModel
@@ -24,7 +25,9 @@ class IntentOutput(BaseModel):
         "DEVELOP_OBJETIVOS",
         "DEVELOP_METODOLOGIA",
         "FREE_DEBATE",
-    ]
+    ] = "FREE_DEBATE"
+    tema: Optional[str] = None
+    objetivo: Optional[str] = None
 
 class DebateContext(BaseModel):
     project_id: str
@@ -42,17 +45,18 @@ class DebateContext(BaseModel):
     previous_debate_summary: Optional[str] = None
 
 CONTEXT_ANALYZER_PROMPT = """
-Analisar a mensagem do utilizador e o estado actual do projecto.
-Determinar qual campo do Canvas o utilizador quer desenvolver.
+You are a debate intent classifier. Read the user message and classify the debate intent.
 
-Regras de classificação de debate_intent:
-- Mensagem sobre "justificativa" → DEVELOP_JUSTIFICATIVA
-- Mensagem sobre "problema" ou "questão" → DEVELOP_PROBLEMA
-- Mensagem sobre "objectivos" → DEVELOP_OBJETIVOS
-- Mensagem sobre "metodologia" ou "método" → DEVELOP_METODOLOGIA
-- Qualquer outra dúvida ou debate → FREE_DEBATE
+Classification rules:
+- Message about "justificativa" or "justification" → DEVELOP_JUSTIFICATIVA
+- Message about "problema" or "problem" or "research question" → DEVELOP_PROBLEMA
+- Message about "objectivos" or "objectives" or "goals" → DEVELOP_OBJETIVOS
+- Message about "metodologia" or "methodology" or "method" → DEVELOP_METODOLOGIA
+- Any other topic, question, or debate → FREE_DEBATE
 
-Responda OBRIGATORIAMENTE em JSON seguindo o schema IntentOutput.
+CRITICAL: Respond ONLY with a valid JSON object. No explanation. No other text. English only.
+Example output:
+{"debate_intent": "FREE_DEBATE", "tema": "topic here", "objetivo": null}
 """
 
 context_analyzer_agent = adk.Agent(
@@ -86,10 +90,36 @@ async def analyze_context(state: GraphState, user_message: str) -> DebateContext
 
     try:
         result = await context_analyzer_agent.run(prompt)
-        intent = result.debate_intent if isinstance(result, IntentOutput) else "FREE_DEBATE"
+
+        if isinstance(result, IntentOutput):
+            intent = result.debate_intent
+        elif isinstance(result, str):
+            log.debug("[DEBATE] ContextAnalyzer raw result: %s", result)
+            try:
+                # Try to extract and repair JSON
+                repaired = repair_json(result)
+                if not repaired or repaired == "{}":
+                    log.warning("[DEBATE] json_repair returned empty/invalid: %s", repaired)
+                    raise ValueError("json_repair returned empty string")
+                
+                analysis = IntentOutput.model_validate_json(repaired)
+                intent = analysis.debate_intent
+            except Exception as exc:
+                # Manual fallback: try to find intent name in raw text
+                log.info("[DEBATE] json_repair failed or no JSON, content: %s", result)
+                valid_intents = ["DEVELOP_JUSTIFICATIVA", "DEVELOP_PROBLEMA", "DEVELOP_OBJETIVOS", "DEVELOP_METODOLOGIA", "FREE_DEBATE"]
+                for intent_name in valid_intents:
+                    if intent_name in result.upper():
+                        intent = intent_name
+                        break
+                else:
+                    log.error("[DEBATE] ContextAnalyzer FAILED parsing: %s | Content: %s", exc, result)
+                    raise ValueError(f"ContextAnalyzer failed to produce valid JSON or intent: {exc}")
+        else:
+            raise ValueError(f"ContextAnalyzer returned unexpected type: {type(result)}")
     except Exception as exc:
-        log.warning("ContextAnalyzer failed (%s) — defaulting to FREE_DEBATE", exc)
-        intent = "FREE_DEBATE"
+        log.error("ContextAnalyzer CRITICAL FAILURE: %s", exc)
+        raise exc
 
     log.info("[DEBATE] ContextAnalyzer: intent=%s in %.2fs", intent, time.perf_counter() - t0)
 

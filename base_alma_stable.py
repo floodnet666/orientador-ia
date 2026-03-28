@@ -12,27 +12,31 @@ from app.services.ollama_client import ollama_client
 from app.state.graph_state import GraphState
 from app.lib.tools.external_search import DeepSearchTool
 from app.lib.tools.empirical_indexer import EmpiricalIndexingTool
-from app.lib.tools.empirical_search import EmpiricalSearchTool
-
-class Tool:
-    def __init__(self, name: str, func: callable, description: str):
-        self.name = name
-        self.func = func
-        self.description = description
 
 
 BASE_ALMA_INSTRUCTIONS = """
-Você é um Agente de Pesquisa Acadêmica integrado. Você tem acesso a um Whiteboard Digital (Canvas) à sua direita para materializar o conhecimento.
+REGRAS ABSOLUTAS DE COMPORTAMENTO (nunca violar):
 
---- PROTOCOLO DE APOIO VISUAL ---
-1. MATERIALIZAÇÃO: Use `update_whiteboard` para consolidar avanços em campos estruturais (tema, problema, objetivos, etc.).
-2. DIAGRAMAÇÃO: Use `add_canvas_node` e `add_canvas_edge` para criar mapas mentais ou fluxogramas apenas quando o utilizador solicitar explicitamente ("desenha", "faz um mapa") ou quando a complexidade conceptual o justificar.
-3. EFICIÊNCIA: Evite redundância. O Whiteboard deve ser uma síntese clara, não um log de toda a conversa.
+1. NUNCA escrever partes do trabalho académico do utilizador.
 
-DIRETIVAS ACADÉMICAS:
-- Mantenha rigor científico total (PhD level).
-- Nas buscas bibliográficas, use o formato: "Título. Autor. Descrição. [Link]"
-- Salve artigos cruciais usando a ferramenta 'EmpiricalIndexing'.
+2. SEMPRE responder com perguntas socráticas que estimulem o pensamento crítico.
+
+3. Manter SEMPRE o tom de voz e a perspectiva teórica definidos no teu System Prompt.
+
+4. As tuas respostas têm um limite máximo de 250 palavras.
+
+5. Quando detectares que o utilizador chegou a uma conclusão sobre Tema, Problema,
+   Justificativa, Objectivo ou Metodologia, termina a resposta com o tag XML:
+   <canvas_signal field="NOME_DO_CAMPO" value="TEXTO_CONCLUIDO" />
+
+6. Adaptar a complexidade linguística ao nível académico do utilizador:
+   HIGHSCHOOL → linguagem simples, exemplos concretos.
+   PHD → terminologia técnica rigorosa, referências implícitas.
+
+7. Quando utilizares ferramentas de busca bibliográfica (como ArXiv, SciELO ou OpenAlex), responde SEMPRE no seguinte formato:
+   "Título do Livro.. Autor. Nome - Breve descrição da importância. Disponível em [link]"
+
+8. Se encontrares um artigo científico MUITO RELEVANTE na pesquisa que fundamente bem uma parte do Canvas, utiliza a ferramenta 'EmpiricalIndexing' para o "salvar" como referência oficial do projecto.
 """
 
 
@@ -70,20 +74,6 @@ def _canvas_summary(state: GraphState) -> str:
         if tipo:
             lines.append(f"METODOLOGIA: {tipo}")
 
-    if hasattr(c, "mapa_mental"):
-        mm = c.mapa_mental
-        if isinstance(mm, dict):
-            nodes = mm.get("nodes", [])
-            edges = mm.get("edges", [])
-            if nodes:
-                lines.append("\n=== MAPA MENTAL (NÓS) ===")
-                for n in nodes:
-                    lines.append(f"- {n.get('id')}: {n.get('label')} ({n.get('concept_type', 'concept')})")
-            if edges:
-                lines.append("\n=== MAPA MENTAL (RELAÇÕES) ===")
-                for e in edges:
-                    lines.append(f"- {e.get('source_id')} -> {e.get('target_id')} [{e.get('relation', 'liga')}]")
-
     lines.append("=" * 44)
     lines.append(
         "INSTRUÇÃO CRÍTICA: TODAS as tuas respostas devem estar ancoradas neste "
@@ -95,33 +85,29 @@ def _canvas_summary(state: GraphState) -> str:
 
 def build_alma_context(state: GraphState) -> list[dict]:
     """Build message list for the Alma LLM call.
-    Includes BASE_ALMA_INSTRUCTIONS as a system message and prepends 
-    project context for grounding.
+    
+    Prepends a synthetic 'system' message (injected as the first user/assistant
+    exchange) with the full research canvas so the Alma is always grounded.
     """
     messages = []
-    
-    # 1. Primary System Protocol is passed via the 'system' parameter in stream_response.
-    # We remove the redundant system message here to reduce entropy.
 
-    # 2. Inject canvas as a priming message
+    # Inject canvas as a priming system message
     canvas_ctx = _canvas_summary(state)
     if canvas_ctx:
         messages.append({
             "role": "user",
-            "content": f"[CONTEXTO ATUAL DO PROJECTO]\\n{canvas_ctx}",
+            "content": f"[CONTEXTO]\\n{canvas_ctx}",
         })
-        tema_content = state.current_canvas.tema.get("content") if state.current_canvas.tema else "Inicializando..."
         messages.append({
             "role": "assistant",
             "content": (
                 "Entendido. Tenho em conta o projecto de investigação específico "
-                "e usarei o Whiteboard para materializar todo o progresso estruturado."
+                "apresentado e ancораrei todas as minhas respostas nesse contexto."
             ),
         })
 
-    # 3. Chat History (Last 20)
-    history = state.chat_history[-20:]
-    for msg in history:
+    # Last 20 actual chat messages
+    for msg in state.chat_history[-20:]:
         role = "user" if msg.role == "user" else "assistant"
         messages.append({"role": role, "content": msg.content})
 
@@ -132,8 +118,7 @@ class BaseAlma:
     def __init__(self, name: str, system_prompt: str, personality: str) -> None:
         self.name = name
         self.personality = personality
-        # Primacy effect: Instruções de interface vêm PRIMEIRO
-        self._system_prompt = BASE_ALMA_INSTRUCTIONS + "\n\n" + system_prompt
+        self._system_prompt = system_prompt + "\n\n" + BASE_ALMA_INSTRUCTIONS
         self.tools = [
             DeepSearchTool()
         ]
@@ -142,71 +127,9 @@ class BaseAlma:
 
     def _format_tools(self) -> list[dict] | None:
         """Converts ADK Tools to Ollama Schema."""
-        formatted = []
-        
-        # 1. Add update_whiteboard tool (native core tool)
-        formatted.append({
-            "type": "function",
-            "function": {
-                "name": "update_whiteboard",
-                "description": "Materialize structured research progress on the visual canvas. Use this for themes, problems, justifications, objectives, and methodology.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "field": {
-                            "type": "string", 
-                            "enum": [
-                                "tema", "problema", "justificativa", 
-                                "objetivo_geral", "objetivos_especificos",
-                                "metodologia_tipo", "metodologia_instrumentos",
-                                "mapa_mental"
-                            ]
-                        },
-                        "value": {"type": "string", "description": "The detailed academic content to be displayed."}
-                    },
-                    "required": ["field", "value"]
-                }
-            }
-        })
-
-        formatted.append({
-            "type": "function",
-            "function": {
-                "name": "add_canvas_node",
-                "description": "Cria um nó visual no Whiteboard (tldraw). Use IDs curtos e únicos (ex: 'n1', 'n2').",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string", "description": "ID curto único (ex: 'n1')"},
-                        "label": {"type": "string", "description": "Texto do nó"},
-                        "concept_type": {"type": "string", "enum": ["concept", "author", "tension", "method"]},
-                        "source_alma": {"type": "string"}
-                    },
-                    "required": ["id", "label"]
-                }
-            }
-        })
-
-        formatted.append({
-            "type": "function",
-            "function": {
-                "name": "add_canvas_edge",
-                "description": "Conecta dois nós visuais no Whiteboard (tldraw).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "source_id": {"type": "string"},
-                        "target_id": {"type": "string"},
-                        "relation": {"type": "string"}
-                    },
-                    "required": ["source_id", "target_id"]
-                }
-            }
-        })
-
         if not self.tools:
-            return formatted
-
+            return None
+        formatted = []
         for t in self.tools:
             properties = {"query": {"type": "string", "description": "Search query"}}
             required = ["query"]
@@ -217,26 +140,6 @@ class BaseAlma:
                     "filename": {"type": "string", "description": "Name for the saved file"}
                 }
                 required = ["url", "filename"]
-            elif t.name == "search_evidence":
-                properties = {
-                    "query": {"type": "string", "description": "Search query for the empirical documents"}
-                }
-                required = ["query"]
-            elif t.name == "add_canvas_node":
-                properties = {
-                    "id": {"type": "string", "description": "ID curto único (ex: 'n1')"},
-                    "label": {"type": "string", "description": "Texto do nó"},
-                    "concept_type": {"type": "string", "enum": ["concept", "author", "tension", "method"]},
-                    "source_alma": {"type": "string"}
-                }
-                required = ["id", "label"]
-            elif t.name == "add_canvas_edge":
-                properties = {
-                    "source_id": {"type": "string"},
-                    "target_id": {"type": "string"},
-                    "relation": {"type": "string"}
-                }
-                required = ["source_id", "target_id"]
 
             formatted.append({
                 "type": "function",
@@ -260,8 +163,6 @@ class BaseAlma:
         # Inject project-specific tools if not already present
         if not any(isinstance(t, EmpiricalIndexingTool) for t in self.tools):
             self.tools.append(EmpiricalIndexingTool(UUID(state.project_id)))
-        if not any(isinstance(t, EmpiricalSearchTool) for t in self.tools):
-            self.tools.append(EmpiricalSearchTool(UUID(state.project_id)))
 
         context = build_alma_context(state)
         if state.orchestrator_directive:
@@ -277,13 +178,8 @@ class BaseAlma:
             model_name = self.llm_params.model
             temperature = self.llm_params.temperature
 
-        iteration_count = 0
-        MAX_ITERATIONS = 3
-        
-        while iteration_count < MAX_ITERATIONS:
-            iteration_count += 1
+        while True:
             tool_calls = None
-            
             async for chunk in ollama_client.chat_stream(
                 model=model_name,
                 messages=context,
@@ -291,7 +187,6 @@ class BaseAlma:
                 tools=self._format_tools()
             ):
                 if chunk.startswith('{"tool_calls":'):
-                    yield chunk  # Yield to allow chat.py to detect NTC
                     tool_calls = j.loads(chunk)["tool_calls"]
                     break
                 yield chunk
@@ -311,17 +206,6 @@ class BaseAlma:
             for tc in tool_calls:
                 f_name = tc["function"]["name"]
                 f_args = tc["function"]["arguments"]
-                
-                # Core Native Tools (Whiteboard) — Handled by chat.py via yielded chunk,
-                # but we satisfy the context here to allow continuation.
-                if f_name == "update_whiteboard":
-                    context.append({
-                        "role": "tool",
-                        "content": j.dumps({"status": "success", "field": f_args.get("field")}),
-                        "name": f_name
-                    })
-                    continue
-
                 if websocket:
                     try:
                         await websocket.send_text(j.dumps({
@@ -367,16 +251,16 @@ class StatelessAlma(BaseAlma):
         """
         self.name = config.name
         self.personality = config.persona_description
-        # Primacy effect: Instruções de interface vêm PRIMEIRO
-        self._system_prompt = BASE_ALMA_INSTRUCTIONS + "\n\n" + config.system_prompt
+        self._system_prompt = config.system_prompt + "\n\n" + BASE_ALMA_INSTRUCTIONS
+        self.tools = []
+        
         # Mapeia ferramentas habilitadas
         from app.lib.tools.external_search import DeepSearchTool
-        self.tools = [DeepSearchTool()]
-        
         for t in config.tools:
             if t.enabled:
-                # O mapeamento para EmpiricalSearchTool e EmpiricalIndexingTool 
-                # ocorre dinamicamente em stream_response para garantir o project_id correto.
-                pass
+                if t.name in ["openalex_search", "scielo_search", "arxiv_search"]:
+                    if not any(isinstance(x, DeepSearchTool) for x in self.tools):
+                        self.tools.append(DeepSearchTool())
         
         self.llm_params = config.llm_params
+
