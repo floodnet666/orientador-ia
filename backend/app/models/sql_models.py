@@ -104,6 +104,7 @@ class Project(Base):
     methodological_alma_id = Column(
         UUID(as_uuid=True), ForeignKey("ecosystem_resources.id"), nullable=True
     )
+    soul_ids = Column(JSON, default=list, server_default='[]')
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

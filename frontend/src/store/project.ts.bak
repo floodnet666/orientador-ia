@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { Alma } from '@/lib/api'
 
 export interface CanvasState {
     tema: { content: string; is_locked: boolean }
@@ -18,8 +17,14 @@ export interface ChatMessage {
     created_at?: string
 }
 
-// For compatibility we use the same structure as backend's AlmaOut
-export type { Alma }
+export interface AlmaInfo {
+    id: string
+    name: string
+    description: string
+    alma_type: string
+    personality_descriptor: string
+    score: number
+}
 
 const defaultCanvas: CanvasState = {
     tema: { content: '', is_locked: false },
@@ -33,7 +38,7 @@ interface ProjectStore {
     canvas: CanvasState
     chatMessages: ChatMessage[]
     isStreaming: boolean
-    activeAlmas: Alma[]
+    activeAlmas: { theoretical: AlmaInfo | null; methodological: AlmaInfo | null }
     empiricalDocuments: string[]
     updateCanvas: (canvas: CanvasState) => void
     updateCanvasField: (field: string, value: unknown) => void
@@ -41,7 +46,7 @@ interface ProjectStore {
     addMessage: (msg: ChatMessage) => void
     appendToLastMessage: (chunk: string) => void
     setStreaming: (v: boolean) => void
-    setActiveAlmas: (almas: Alma[]) => void
+    setActiveAlmas: (theoretical: AlmaInfo | null, methodological: AlmaInfo | null) => void
     setEmpiricalDocuments: (docs: string[]) => void
     reset: () => void
 }
@@ -50,7 +55,7 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     canvas: defaultCanvas,
     chatMessages: [],
     isStreaming: false,
-    activeAlmas: [],
+    activeAlmas: { theoretical: null, methodological: null },
     empiricalDocuments: [],
 
     updateCanvas: (canvas) => set({ canvas }),
@@ -65,8 +70,8 @@ export const useProjectStore = create<ProjectStore>((set) => ({
             return { chatMessages: msgs }
         }),
     setStreaming: (v) => set({ isStreaming: v }),
-    setActiveAlmas: (almas) =>
-        set({ activeAlmas: almas }),
+    setActiveAlmas: (theoretical, methodological) =>
+        set({ activeAlmas: { theoretical, methodological } }),
     setEmpiricalDocuments: (docs) => set({ empiricalDocuments: docs }),
     reset: () =>
         set({ canvas: defaultCanvas, chatMessages: [], isStreaming: false, empiricalDocuments: [] }),

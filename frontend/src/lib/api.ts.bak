@@ -5,26 +5,6 @@ function getToken(): string | null {
     return localStorage.getItem('token')
 }
 
-export interface Alma {
-    id: string
-    name: string
-    description: string
-    alma_type: string
-    personality_descriptor: string
-    score?: number
-}
-
-export interface Project {
-    id: string
-    title: string
-    domain_area: string
-    academic_level: string
-    human_guidelines?: string
-    soul_ids: string[]
-    active_almas: Alma[]
-}
-
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const token = getToken()
     const headers: HeadersInit = {
@@ -76,15 +56,15 @@ export const authApi = {
 // ── Projects ─────────────────────────────────────────────────────────────────
 
 export const projectsApi = {
-    list: () => request<Project[]>('/api/projects'),
+    list: () => request<unknown[]>('/api/projects'),
 
     create: (body: { title: string; domain_area: string; academic_level: string; human_guidelines?: string }) =>
-        request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
+        request<unknown>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
 
-    get: (id: string) => request<Project>(`/api/projects/${id}`),
+    get: (id: string) => request<unknown>(`/api/projects/${id}`),
 
     update: (id: string, body: Partial<{ title: string; domain_area: string; status: string; human_guidelines: string }>) =>
-        request<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+        request<unknown>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
     delete: (id: string) => request<unknown>(`/api/projects/${id}`, { method: 'DELETE' }),
 
@@ -95,7 +75,7 @@ export const projectsApi = {
         }),
 
     selectAlmas: (id: string, body: { theoretical_alma_id?: string; methodological_alma_id?: string; alma_ids?: string[] }) =>
-        request<Project>(`/api/projects/${id}/select-almas`, {
+        request<unknown>(`/api/projects/${id}/select-almas`, {
             method: 'POST',
             body: JSON.stringify(body),
         }),

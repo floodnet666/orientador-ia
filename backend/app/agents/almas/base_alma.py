@@ -370,7 +370,6 @@ class StatelessAlma(BaseAlma):
         # Primacy effect: Instruções de interface vêm PRIMEIRO
         self._system_prompt = BASE_ALMA_INSTRUCTIONS + "\n\n" + config.system_prompt
         # Mapeia ferramentas habilitadas
-        from app.lib.tools.external_search import DeepSearchTool
         self.tools = [DeepSearchTool()]
         
         for t in config.tools:

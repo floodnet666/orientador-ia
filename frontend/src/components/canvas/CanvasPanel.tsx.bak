@@ -209,28 +209,20 @@ export default function CanvasPanel({ projectId }: Props) {
                                 )}
                             </div>
 
-                            <div className="space-y-2">
+                            <div className="space-y-1.5">
                                 {activeAlmas.length === 0 ? (
                                     <p className="text-xs text-slate-600 italic">Nenhuma alma selecionada no projeto.</p>
                                 ) : (
                                     activeAlmas.map((alma, idx) => {
                                         const emojis = ['🔴', '🟠', '🟡', '🟢', '🔵', '🟣'];
                                         const emoji = emojis[idx % emojis.length];
-                                        const isTheoretical = String(alma.alma_type).toLowerCase().includes('theor');
-                                        
                                         return (
-                                            <div key={alma.id} className="flex items-center gap-2.5 group/alma">
-                                                <span className="shrink-0 text-base filter grayscale-[0.2] group-hover/alma:grayscale-0 transition-all">
-                                                    {emoji}
+                                            <div key={alma.id} className="flex items-center gap-2 text-[13px] text-slate-300">
+                                                <span className="shrink-0 text-sm">{emoji}</span>
+                                                <span className="truncate flex-1">{alma.name}</span>
+                                                <span className="text-[9px] text-white/20 uppercase tracking-tighter ml-auto">
+                                                    {String(alma.alma_type).toLowerCase().includes('theor') ? 'Teoria' : 'Método'}
                                                 </span>
-                                                <div className="flex flex-col min-w-0">
-                                                    <span className="text-white text-[13px] font-medium truncate group-hover/alma:text-indigo-300 transition-colors">
-                                                        {alma.name}
-                                                    </span>
-                                                    <span className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">
-                                                        {isTheoretical ? 'Perspectiva Teórica' : 'Rigor Metodológico'}
-                                                    </span>
-                                                </div>
                                             </div>
                                         )
                                     })

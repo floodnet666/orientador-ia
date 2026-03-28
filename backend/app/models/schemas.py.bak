@@ -61,7 +61,6 @@ class ProjectOut(BaseModel):
     theoretical_alma_id: Optional[UUID] = None
     methodological_alma_id: Optional[UUID] = None
     soul_ids: list[UUID] = []
-    active_almas: list["AlmaOut"] = []
     created_at: datetime
     updated_at: datetime
 

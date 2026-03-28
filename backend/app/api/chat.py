@@ -135,6 +135,7 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
         active_theoretical_alma=theo_name,
         active_methodological_alma=meth_name,
         human_guidelines=project.human_guidelines or "",
+        active_soul_ids=[str(sid) for sid in (project.soul_ids or [])],
         empirical_documents=empirical_docs
     )
 

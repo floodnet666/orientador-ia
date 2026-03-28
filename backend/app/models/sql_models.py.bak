@@ -58,8 +58,9 @@ class User(Base):
     academic_level = Column(
         Enum(AcademicLevelEnum, name="academic_level_enum"), nullable=False
     )
+    is_admin = Column(Boolean, default=False, server_default="false", nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    projects = relationship("Project", back_populates="owner")
+    projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan", passive_deletes=True)
 
 
 class EcosystemResource(Base):
@@ -78,6 +79,7 @@ class EcosystemResource(Base):
     origin_project_id = Column(UUID(as_uuid=True), nullable=True)
     system_prompt = Column(Text, nullable=False)
     personality_descriptor = Column(String, nullable=False)
+    llm_model = Column(String, nullable=True)
     is_approved = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -86,7 +88,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False)
     domain_area = Column(String, nullable=False)
     academic_level = Column(
@@ -106,14 +108,14 @@ class Project(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     owner = relationship("User", back_populates="projects")
-    canvas_state = relationship("ProjectCanvasState", uselist=False, back_populates="project")
-    messages = relationship("ChatMessage", back_populates="project")
+    canvas_state = relationship("ProjectCanvasState", uselist=False, back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+    messages = relationship("ChatMessage", back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
 
 
 class ProjectCanvasState(Base):
     __tablename__ = "project_canvas_state"
 
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
     canvas_json = Column(
         JSON,
         nullable=False,
@@ -123,6 +125,7 @@ class ProjectCanvasState(Base):
             "justificativa": {"content": "", "is_locked": False},
             "objetivos": {"geral": "", "especificos": []},
             "metodologia": {"tipo": "", "instrumentos": []},
+            "mapa_mental": {"content": "", "is_locked": False},
         },
     )
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -134,7 +137,7 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False, index=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(Enum(RoleEnum, name="role_enum"), nullable=False)
     alma_id = Column(UUID(as_uuid=True), nullable=True)
     alma_name = Column(String, nullable=True)
@@ -142,3 +145,32 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     project = relationship("Project", back_populates="messages")
+
+
+class AlmaPromptHistory(Base):
+    __tablename__ = "alma_prompt_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    alma_id = Column(UUID(as_uuid=True), ForeignKey("ecosystem_resources.id", ondelete="CASCADE"), nullable=False)
+    previous_prompt = Column(Text, nullable=False)
+    new_prompt = Column(Text, nullable=False)
+    reason = Column(Text, nullable=True)
+    changed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    changed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    alma = relationship("EcosystemResource")
+    changed_by = relationship("User")
+
+
+class SystemMetric(Base):
+    __tablename__ = "system_metrics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    endpoint = Column(String, nullable=False)
+    duration_ms = Column(Integer, nullable=False)
+    status_code = Column(Integer, nullable=False)
+    error_message = Column(Text, nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")

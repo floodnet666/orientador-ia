@@ -69,6 +69,7 @@ class DebateOrchestrator:
             alma_list=alma_list,
             active_theoretical_alma=state.active_theoretical_alma,
             active_methodological_alma=state.active_methodological_alma,
+            active_soul_ids=state.active_soul_ids,
         )
         log.info("[%s] 3_PANEL_SELECTED in %.2fs", req_id, time.perf_counter() - t3)
 

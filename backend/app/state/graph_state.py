@@ -37,6 +37,7 @@ class GraphState(BaseModel):
     canvas_fields_to_update: dict = Field(default_factory=dict)
     validation_flags: ValidationFlags = Field(default_factory=ValidationFlags)
     human_guidelines: str = ""
+    active_soul_ids: List[str] = Field(default_factory=list)
 
     # Documents metadata for orchestration awareness
     empirical_documents: List[Any] = Field(default_factory=list)

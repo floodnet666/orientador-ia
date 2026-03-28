@@ -38,31 +38,13 @@ async def _get_project_or_404(project_id: UUID, user_id, db: AsyncSession) -> Pr
     return project
 
 
-async def _hydrate_active_almas(project: Project, db: AsyncSession):
-    """Popula a lista de objetos Alma (EcosystemResource) baseada no soul_ids."""
-    if not project.soul_ids:
-        project.active_almas = []
-        return project
-    
-    # Converte para strings se necessário (dependendo do driver JSON)
-    ids = [str(uid) for uid in project.soul_ids]
-    result = await db.execute(
-        select(EcosystemResource).where(EcosystemResource.id.in_(ids))
-    )
-    project.active_almas = result.scalars().all()
-    return project
-
-
 @router.get("", response_model=list[ProjectOut])
 async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Project).where(Project.user_id == current_user.id))
-    projects = result.scalars().all()
-    for p in projects:
-        await _hydrate_active_almas(p, db)
-    return projects
+    return result.scalars().all()
 
 
 @router.post("", response_model=ProjectOut, status_code=201)
@@ -91,7 +73,7 @@ async def create_project(
     db.add(canvas)
     await db.commit()
     await db.refresh(project)
-    return await _hydrate_active_almas(project, db)
+    return project
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
@@ -100,8 +82,7 @@ async def get_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _get_project_or_404(project_id, current_user.id, db)
-    return await _hydrate_active_almas(project, db)
+    return await _get_project_or_404(project_id, current_user.id, db)
 
 
 @router.patch("/{project_id}", response_model=ProjectOut)
@@ -116,7 +97,7 @@ async def update_project(
         setattr(project, field, value)
     await db.commit()
     await db.refresh(project)
-    return await _hydrate_active_almas(project, db)
+    return project
 
 
 @router.delete("/{project_id}")
@@ -172,7 +153,7 @@ async def select_almas(
 
     await db.commit()
     await db.refresh(project)
-    return await _hydrate_active_almas(project, db)
+    return project
 
 
 @router.get("/{project_id}/canvas")

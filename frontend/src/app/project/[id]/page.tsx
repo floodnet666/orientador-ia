@@ -11,7 +11,7 @@ import HelpTooltip from '@/components/shared/HelpTooltip'
 
 export default function ProjectPage() {
     const { id } = useParams<{ id: string }>()
-    const { setMessages, addMessage, appendToLastMessage, setStreaming, updateCanvas, setEmpiricalDocuments } = useProjectStore()
+    const { setMessages, addMessage, appendToLastMessage, setStreaming, updateCanvas, setEmpiricalDocuments, setActiveAlmas } = useProjectStore()
     const socketRef = useRef<ChatSocket | null>(null)
     const [projectTitle, setProjectTitle] = useState('')
     const [uploading, setUploading] = useState(false)
@@ -39,12 +39,18 @@ export default function ProjectPage() {
             chatApi.history(id),
             projectsApi.getCanvas(id),
             empiricalApi.list(id),
-        ]).then(([project, history, canvas, docs]) => {
-            const p = project as Record<string, unknown>
+            projectsApi.getAlmas(), // Pega o catálogo para resolver os nomes/roles
+        ]).then(([project, history, canvas, docs, allAlmas]) => {
+            const p = project as any
             setProjectTitle(p.title as string)
             setMessages(history as ChatMessage[])
             updateCanvas(canvas as Parameters<typeof updateCanvas>[0])
             setEmpiricalDocuments(docs as string[])
+            
+            // Use hydrated active almas directly from backend response
+            if (p.active_almas) {
+                setActiveAlmas(p.active_almas)
+            }
         }).catch(console.error)
 
         // Debate callbacks — dispatch CustomEvents consumed by ChatWindow
@@ -143,9 +149,10 @@ export default function ProjectPage() {
                 style={{ width: `${chatWidth}%` }}
             >
                 <header className="px-6 py-4 border-b border-white/10 flex items-center gap-3 bg-slate-900/80 backdrop-blur-md z-10">
-                    <a href="/dashboard" className="text-slate-400 hover:text-white text-sm transition flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-                        Projetos
+                    <span className="text-white/10">|</span>
+                    <a href={`/project/${id}/match`} id="return-to-matchmaker" className="text-slate-400 hover:text-white text-[11px] font-bold uppercase tracking-widest transition flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        Equipe de Almas
                     </a>
                     <span className="text-white/10">|</span>
                     <h1 className="text-white font-medium truncate tracking-tight flex-1">{projectTitle || 'Carregando projeto...'}</h1>
