@@ -5,24 +5,16 @@ function getToken(): string | null {
     return localStorage.getItem('token')
 }
 
-export interface Alma {
-    id: string
-    name: string
-    description: string
-    alma_type: string
-    personality_descriptor: string
-    score?: number
-}
+import { components } from '@/types/api-schema'
 
-export interface Project {
-    id: string
-    title: string
-    domain_area: string
-    academic_level: string
-    human_guidelines?: string
-    soul_ids: string[]
-    active_almas: Alma[]
-}
+export type Alma = components['schemas']['AlmaOut']
+export type Project = components['schemas']['ProjectOut']
+export type ProjectCreate = components['schemas']['ProjectCreate']
+export type ProjectUpdate = components['schemas']['ProjectUpdate']
+export type UserMe = components['schemas']['UserAdminOut'] // Or appropriate user schema
+export type RegisterRequest = components['schemas']['RegisterRequest']
+export type LoginRequest = components['schemas']['LoginRequest']
+
 
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -58,19 +50,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 export const authApi = {
-    register: (body: { email: string; password: string; full_name: string; academic_level: string }) =>
+    register: (body: RegisterRequest) =>
         request<{ access_token: string }>('/api/auth/register', {
             method: 'POST',
             body: JSON.stringify(body),
         }),
 
-    login: (body: { email: string; password: string }) =>
+    login: (body: LoginRequest) =>
         request<{ access_token: string }>('/api/auth/login', {
             method: 'POST',
             body: JSON.stringify(body),
         }),
 
-    me: () => request<{ id: string; email: string; full_name: string; academic_level: string }>('/api/auth/me'),
+    me: () => request<UserMe>('/api/auth/me'),
 }
 
 // ── Projects ─────────────────────────────────────────────────────────────────
@@ -78,12 +70,12 @@ export const authApi = {
 export const projectsApi = {
     list: () => request<Project[]>('/api/projects'),
 
-    create: (body: { title: string; domain_area: string; academic_level: string; human_guidelines?: string }) =>
+    create: (body: ProjectCreate) =>
         request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
 
     get: (id: string) => request<Project>(`/api/projects/${id}`),
 
-    update: (id: string, body: Partial<{ title: string; domain_area: string; status: string; human_guidelines: string }>) =>
+    update: (id: string, body: ProjectUpdate) =>
         request<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
     delete: (id: string) => request<unknown>(`/api/projects/${id}`, { method: 'DELETE' }),

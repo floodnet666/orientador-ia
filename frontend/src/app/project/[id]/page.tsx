@@ -56,15 +56,15 @@ export default function ProjectPage() {
         // Debate callbacks — dispatch CustomEvents consumed by ChatWindow
         const debateCallbacks: DebateCallbacks = {
             onSystemStatus: (message) => _dispatchDebate('system_status', { message }),
-            onPanelSelected: (panel) => _dispatchDebate('panel_selected', { panel }),
-            onDebateTurnStart: (role, almaName, turn) => {
-                _dispatchDebate('debate_turn_start', { role, almaName, turn })
+            onPanelSelected: (panel, almas) => _dispatchDebate('panel_selected', { panel, almas }),
+            onDebateTurnStart: (role, almaName) => {
+                _dispatchDebate('debate_turn_start', { role, almaName })
                 setStreaming(true)
             },
-            onDebateChunk: (role, almaName, content, turn) =>
-                _dispatchDebate('debate_chunk', { role, almaName, content, turn }),
-            onDebateTurnEnd: (role, almaName, content, turn) =>
-                _dispatchDebate('debate_turn_end', { role, almaName, content, turn }),
+            onDebateChunk: (role, content) =>
+                _dispatchDebate('debate_chunk', { role, content }),
+            onDebateTurnEnd: (role, almaName, content) =>
+                _dispatchDebate('debate_turn_end', { role, almaName, content }),
             onDebateQuestion: (tensions, consensus, question) => {
                 _dispatchDebate('debate_question', { tensions, consensus, question })
                 _dispatchDebate('debate_done', {})

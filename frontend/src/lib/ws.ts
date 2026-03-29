@@ -3,24 +3,26 @@
  * Handles both standard chat events and debate mode events.
  */
 import { CanvasState } from '@/store/project'
+import { ChatEventSchema, ChatEvent } from './contracts/chat-events'
+import { components } from '@/types/api-schema'
+
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
 const MAX_RECONNECTS = 10
 const RECONNECT_DELAY_MS = 2000
 
-export interface DebatePanel {
-    PRIMARIA: { name: string; rationale?: string }
-    COMPLEMENTAR: { name: string; rationale?: string }
-    ANTAGONISTA: { name: string; angle?: string }
-    METODOLOGICA: { name: string }
-}
+export type DebatePanel = Record<string, {
+    name: string;
+    rationale?: string;
+    angle?: string;
+}>;
 
 export interface DebateCallbacks {
     onSystemStatus: (message: string) => void
-    onPanelSelected: (panel: DebatePanel) => void
-    onDebateTurnStart: (role: string, almaName: string, turn: number) => void
-    onDebateChunk: (role: string, almaName: string, content: string, turn: number) => void
-    onDebateTurnEnd: (role: string, almaName: string, content: string, turn: number) => void
+    onPanelSelected: (panel: DebatePanel, almas: any[]) => void
+    onDebateTurnStart: (role: string, almaName: string) => void
+    onDebateChunk: (role: string, content: string) => void
+    onDebateTurnEnd: (role: string, almaName: string, content: string) => void
     onDebateQuestion: (tensions: string[], consensus: string[], question: string) => void
 }
 
@@ -96,59 +98,58 @@ export class ChatSocket {
         }
 
         this.ws.onmessage = (event) => {
-            const data = JSON.parse(event.data)
-            const dc = this.debateCallbacks
+            try {
+                const rawData = JSON.parse(event.data)
+                const result = ChatEventSchema.safeParse(rawData)
+                
+                if (!result.success) {
+                    console.error('[WS] Contract Violation:', result.error.format())
+                    return
+                }
 
-            switch (data.type) {
-                // ── Standard events ───────────────────────────────────────────
-                case 'chunk':
-                    this.onChunk(data.text)
-                    break
-                case 'action':
-                    window.dispatchEvent(
-                        new CustomEvent('chat_action_event', { detail: data.token })
-                    )
-                    break
-                case 'canvas_update':
-                    this.onCanvasUpdate(data.canvas || data.updates)
-                    break
-                case 'done':
-                    this.onDone()
-                    break
-                case 'guardrail_block':
-                    this.onGuardrailBlock(data.text || data.content)
-                    break
-                case 'error':
-                    this.onError(data.message)
-                    break
+                const data = result.data
+                const dc = this.debateCallbacks
 
-                // ── Debate events ─────────────────────────────────────────────
-                case 'system_status':
-                    dc?.onSystemStatus(data.message)
-                    break
-                case 'panel_selected':
-                    dc?.onPanelSelected(data.panel)
-                    break
-                case 'debate_turn_start':
-                    dc?.onDebateTurnStart(data.role, data.alma_name, data.turn_number)
-                    break
-                case 'debate_chunk':
-                    dc?.onDebateChunk(data.role, data.alma_name, data.content, data.turn_number)
-                    break
-                case 'debate_turn_end':
-                    dc?.onDebateTurnEnd(data.role, data.alma_name, data.content, data.turn_number)
-                    break
-                case 'debate_question':
-                    dc?.onDebateQuestion(data.tensions, data.consensus, data.question)
-                    break
-                case 'debate_complete':
-                    // Internal — no UI action needed
-                    break
-                case 'pong':
-                    console.debug('[WS] Pong received')
-                    break
-                default:
-                    console.warn('[WS] Unknown event type:', data.type, 'payload:', data)
+                switch (data.type) {
+                    case 'connected':
+                        console.log('[WS] Connected as:', data.user)
+                        break
+                    case 'chunk':
+                        this.onChunk(data.text)
+                        break
+                    case 'canvas_update':
+                        this.onCanvasUpdate(data.canvas)
+                        break
+                    case 'done':
+                        this.onDone()
+                        break
+                    case 'guardrail_block':
+                        this.onGuardrailBlock(data.text)
+                        break
+                    case 'error':
+                        this.onError(data.message)
+                        break
+                    case 'panel_selected':
+                        dc?.onPanelSelected(data.panel as DebatePanel, data.almas)
+                        break;
+                    case 'debate_turn_start':
+                        dc?.onDebateTurnStart(data.role, data.alma_name)
+                        break
+                    case 'debate_chunk':
+                        dc?.onDebateChunk(data.role, data.content)
+                        break
+                    case 'debate_turn_end':
+                        dc?.onDebateTurnEnd(data.role, data.alma_name, data.content)
+                        break
+                    case 'pong':
+                        console.debug('[WS] Pong received')
+                        break
+                    case 'ping':
+                        // If backend ever pings us
+                        break
+                }
+            } catch (err) {
+                console.error('[WS] Parse Error:', err)
             }
         }
 
