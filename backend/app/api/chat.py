@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from datetime import datetime
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -27,6 +28,10 @@ from app.models.sql_models import (
     User,
 )
 from app.state.graph_state import CanvasState, ChatMessageState, GraphState, ValidationFlags
+from app.agents.state import BackendState
+from app.agents.graph_factory import backend_graph
+from app.lib.graph.alma_registry import DEBATE_ALMAS, get_debate_manifest
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage, ToolMessage, AIMessageChunk
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 log = logging.getLogger("chat.pipeline")
@@ -126,18 +131,48 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
     doc_names = await list_project_documents(project_id, user)
     empirical_docs = [type('Doc', (), {'filename': name, 'id': name}) for name in doc_names]
 
-    return GraphState(
+    return BackendState(
+        messages=messages_as_langchain,
         project_id=str(project_id),
         user_id=str(user.id),
         academic_level=project.academic_level.value,
-        chat_history=chat_history,
-        current_canvas=CanvasState(**canvas_data) if canvas_data else CanvasState(),
         active_theoretical_alma=theo_name,
         active_methodological_alma=meth_name,
-        human_guidelines=project.human_guidelines or "",
         active_soul_ids=[str(sid) for sid in (project.soul_ids or [])],
-        empirical_documents=empirical_docs
+        orchestrator_directive="",
+        human_guidelines=project.human_guidelines or "",
+        current_canvas=CanvasState(**canvas_data) if canvas_data else CanvasState(),
+        canvas_fields_to_update={},
+        validation_flags=ValidationFlags(),
+        empirical_documents=empirical_docs,
+        is_debate_mode=False,
+        debate_round_number=0,
+        previous_debate_summary=None,
+        debate_history=[]
     )
+
+
+async def _build_messages_list(project_id: UUID, db: AsyncSession) -> List[BaseMessage]:
+    """Auxiliar para carregar histórico como BaseMessages do LangChain."""
+    msgs_result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.project_id == project_id)
+        .order_by(ChatMessage.created_at.asc())
+        .limit(50)
+    )
+    history = msgs_result.scalars().all()
+    
+    ls_messages = []
+    for m in history:
+        if m.role == RoleEnum.USER:
+            ls_messages.append(HumanMessage(content=m.content))
+        elif m.role == RoleEnum.ALMA:
+            # TODO: Restaurar tool_calls se necessário para o estado
+            ls_messages.append(AIMessage(content=m.content, name=m.alma_name))
+        elif m.role == RoleEnum.SYSTEM:
+            ls_messages.append(SystemMessage(content=m.content))
+            
+    return ls_messages
 
 
 async def _save_message(
@@ -288,17 +323,10 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
             req_id = f"{str(project_id)[:8]}@{int(t_msg)}"
             log.info("[PIPELINE:%s] START | len=%d", req_id, len(user_content))
 
-            is_debate = _detect_debate_trigger(user_content)
-            log.info("[PIPELINE:%s] ROUTING | debate=%s", req_id, is_debate)
-
-            if is_debate:
-                await _run_debate_pipeline(
-                    websocket, project_id, user, user_content, req_id, t_msg
-                )
-            else:
-                await _run_standard_pipeline(
-                    websocket, project_id, user, user_content, req_id, t_msg, agent_config_override
-                )
+            # Sempre executa o pipeline padrão (o Maestro decide se é debate ou diálogo)
+            await _run_standard_pipeline(
+                websocket, project_id, user, user_content, req_id, t_msg, agent_config_override
+            )
 
     except WebSocketDisconnect:
         log.info("[WS] DISCONNECTED project=%s | %.1fs", project_id, time.perf_counter() - t_connect)
@@ -316,152 +344,130 @@ async def _run_standard_pipeline(
     user_content: str,
     req_id: str,
     t_msg: float,
-    agent_config_override: dict | None = None,  # F5
+    agent_config_override: dict | None = None,
 ):
     async with AsyncSessionLocal() as db:
-        # 1. Save user message
+        # 1. Salvar mensagem do usuário
         await _save_message(db, project_id, RoleEnum.USER, user_content)
 
-        # 2. Guardrails
+        # 2. Guardrails (Plágio etc)
         from app.agents.guardrails import check_plagiarism, PLAGIARISM_RESPONSE
         is_violation, confidence = await check_plagiarism(str(user_content))
-        log.info("[PIPELINE:%s] 2_GUARDRAILS violation=%s conf=%.2f", req_id, is_violation, confidence)
         if is_violation and confidence > 0.7:
             await _save_message(db, project_id, RoleEnum.SYSTEM, PLAGIARISM_RESPONSE)
             await _safe_send_json(websocket, {"type": "guardrail_block", "text": PLAGIARISM_RESPONSE})
             await _safe_send_json(websocket, {"type": "done"})
             return
 
-        # 3. Build GraphState
-        state = await _build_graph_state(project_id, user, db)
-        state.chat_history.append(ChatMessageState(
-            role="user", content=user_content,
-            timestamp=datetime.utcnow().isoformat(),
-        ))
-
-        # 4. Orchestrate
-        from app.agents.orchestrator import orchestrate
+        # 3. Preparar o Estado Inicial do Grafo
+        ls_messages = await _build_messages_list(project_id, db)
+        # Adiciona a mensagem atual se ainda não estiver no histórico do BD
+        ls_messages.append(HumanMessage(content=user_content))
         
-        decision = await orchestrate(state, user_content)
-        intent = decision.get("intent", "DIALOG")
-        state.orchestrator_directive = decision.get("directive", "")
-        log.info("[PIPELINE:%s] 4_ORCHESTRATE alma=%s intent=%s", req_id, decision.get("selected_alma"), intent)
+        # Carregar metadados do projeto
+        initial_state = await _build_graph_state(project_id, user, db)
+        initial_state["messages"] = ls_messages
 
-        # 5. Select Alma
-        from app.agents.almas.base_alma import get_alma_by_name, ALMA_REGISTRY, StatelessAlma
-        from app.models.agent_config import AgentConfig
+        # 4. Executar o Grafo via stream
+        log.info("[PIPELINE:%s] LangGraph Executing (astream_events)...", req_id)
+        
+        full_response_text = ""
+        last_alma_name = initial_state.get("active_theoretical_alma", "Orientador")
 
-        alma = None
-        alma_name = ""
-
-        if agent_config_override:
-            try:
-                config_obj = AgentConfig(**agent_config_override)
-                alma = StatelessAlma(config_obj)
-                alma_name = config_obj.name
-                log.info("[PIPELINE:%s] Using StatelessAlma override: %s", req_id, alma_name)
-            except Exception as e:
-                log.error("[PIPELINE:%s] Invalid agent_config_override: %s", req_id, e)
-
-        if not alma:
-            alma_name = (
-                state.active_methodological_alma
-                if decision.get("selected_alma") == "METHODOLOGICAL"
-                else state.active_theoretical_alma
-            )
-            alma = get_alma_by_name(alma_name) or (
-                next(iter(ALMA_REGISTRY.values()), None) if ALMA_REGISTRY else None
-            )
-
-        # 5.1 Enforce search if intent is SEARCH
-        if intent == "SEARCH" and state.orchestrator_directive:
-            # We explicitly tell the Alma to use search tools
-            state.orchestrator_directive += "\n[URGENTE]: Utilize obrigatoriamente a ferramenta DeepSearch para fundamentar esta resposta."
-
-        # 6. Stream alma response with tool handling
-        full_response = ""
-        import json as j
-        if alma:
-            async for chunk in alma.stream_response(state, websocket):
-                # Detect Native Tool Calls (NTC) from OllamaClient
-                if chunk.startswith('{"tool_calls":'):
-                    try:
-                        data = j.loads(chunk)
-                        tool_calls = data.get("tool_calls", [])
-                        log.info("[PIPELINE:%s] NTC RAW: %s", req_id, chunk)
-                        for tc in tool_calls:
-                            f_name = tc.get("function", {}).get("name")
-                            f_args = tc.get("function", {}).get("arguments", {})
-                            
-                            if f_name == "update_whiteboard":
-                                field = f_args.get("field")
-                                value = f_args.get("value")
-                                if field and value:
-                                    log.info("[PIPELINE:%s] NTC execution: update_whiteboard(%s)", req_id, field)
-                                    # Update DB immediately
-                                    updated = await _update_canvas(db, project_id, {field: value})
-                                    # Notify UI
-                                    await _safe_send_json(websocket, {
-                                        "type": "canvas_update", 
-                                        "canvas": updated
-                                    })
-                            
-                            elif f_name == "add_canvas_node":
-                                log.info("[PIPELINE:%s] NTC execution: add_canvas_node(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_node": f_args})
-                                await _safe_send_json(websocket, {
-                                    "type": "action",
-                                    "token": {
-                                        "type": "CANVAS_NODE",
-                                        "payload": f_args
-                                    }
-                                })
-                                log.info("[PIPELINE:%s] Visual node added", req_id)
-                            
-                            elif f_name == "add_canvas_edge":
-                                log.info("[PIPELINE:%s] NTC execution: add_canvas_edge(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_edge": f_args})
-                                await _safe_send_json(websocket, {
-                                    "type": "action",
-                                    "token": {
-                                        "type": "CANVAS_EDGE",
-                                        "payload": f_args
-                                    }
-                                })
-                                log.info("[PIPELINE:%s] Visual edge added", req_id)
-                    except Exception as e:
-                        log.error("[PIPELINE:%s] NTC Processing Error: %s", req_id, e, exc_info=True)
-                    continue
-
-                # Standard text or legacy actions
-                full_response += chunk
-                await _safe_send_json(websocket, {"type": "chunk", "text": chunk})
-        else:
-            full_response = "Nenhuma Alma foi selecionada para este projeto ainda."
-            await _safe_send_json(websocket, {"type": "chunk", "text": full_response})
-
-        # 7. Save response
-        await _save_message(db, project_id, RoleEnum.ALMA, full_response, alma_name=alma_name)
-
-    # 8. Canvas extraction (background - fallback for 7B models)
-    async def do_canvas_extraction():
         try:
-            async with AsyncSessionLocal() as db2:
-                state2 = await _build_graph_state(project_id, user, db2)
-                from app.agents.canvas_extractor import extract_canvas_fields
-                extracted = await extract_canvas_fields(state2)
-                if extracted:
-                    updated = await _update_canvas(db2, project_id, extracted)
-                    await _safe_send_json(websocket, {"type": "canvas_update", "canvas": updated})
-        except Exception as exc:
-            log.error("[PIPELINE:%s] CANVAS_EXTRACT ERROR: %s", req_id, exc)
+            # Configuração do Grafo
+            config = {"configurable": {"thread_id": str(project_id)}}
 
-    asyncio.create_task(do_canvas_extraction())
-    await _safe_send_json(websocket, {"type": "done"})
-    duration_s = time.perf_counter() - t_msg
-    log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, duration_s)
+            async for event in backend_graph.astream_events(
+                initial_state, 
+                config=config,
+                version="v2"
+            ):
+                kind = event["event"]
+                tags = event.get("tags", [])
+                data = event.get("data", {})
+                metadata = event.get("metadata", {})
+                node_name = metadata.get("langgraph_node")
+
+                # [A] Eventos de DEBATE (Manifesto e Turnos)
+                if kind == "on_chain_start" and event.get("name") == "debate":
+                    await _safe_send_json(websocket, get_debate_manifest())
+                    log.info("[PIPELINE:%s] Debate manifest sent.", req_id)
+
+                elif kind == "on_chat_model_start":
+                    if node_name in DEBATE_ALMAS:
+                        alma = DEBATE_ALMAS[node_name]
+                        await _safe_send_json(websocket, {
+                            "type": "debate_turn_start",
+                            "alma_id": alma.id,
+                            "role": node_name,
+                            "alma_name": alma.name
+                        })
+                    elif node_name == "alma":
+                        await _safe_send_json(websocket, {"type": "start"})
+
+                # [B] Streaming de Chunks (Normal ou Debate)
+                elif kind == "on_chat_model_stream":
+                    chunk = data.get("chunk")
+                    if chunk and chunk.content:
+                        if node_name in DEBATE_ALMAS:
+                            await _safe_send_json(websocket, {
+                                "type": "debate_chunk",
+                                "content": chunk.content,
+                                "role": node_name
+                            })
+                        else:
+                            await _safe_send_json(websocket, {
+                                "type": "chunk",
+                                "text": chunk.content
+                            })
+                            full_response_text += chunk.content
+
+                # [C] Tool Calls e Atualizações Visuais
+                elif kind == "on_tool_end":
+                    t_name = event.get("name")
+                    t_output = data.get("output")
+                    
+                    if t_name in ["update_whiteboard", "add_canvas_node", "add_canvas_edge"]:
+                        # Recarrega canvas para o frontend
+                        async with AsyncSessionLocal() as db_sync:
+                            res = await db_sync.execute(
+                                select(ProjectCanvasState).where(ProjectCanvasState.project_id == project_id)
+                            )
+                            canvas_row = res.scalar_one_or_none()
+                            if canvas_row:
+                                await _safe_send_json(websocket, {
+                                    "type": "canvas_update",
+                                    "canvas": canvas_row.canvas_json
+                                })
+
+            # 5. Salvar resposta final
+            # Buscamos a alma selecionada no final da execução (ou usamos fallback)
+            # Nota: para simplicidade, salvamos com o nome da alma ativa no momento.
+            await _save_message(db, project_id, RoleEnum.ALMA, full_response_text, alma_name=last_alma_name)
+
+        except Exception as e:
+            log.error("[PIPELINE:%s] Graph Execution Error: %s", req_id, e, exc_info=True)
+            await _safe_send_json(websocket, {"type": "error", "message": f"Erro na orquestração: {str(e)}"})
+
+        # 6. Extração de Canvas em background (opcional, já que ferramentas agora fazem isso)
+        # Mantido como segurança para modelos que não usam ferramentas mas descrevem no texto
+        async def do_canvas_extraction():
+            try:
+                async with AsyncSessionLocal() as db2:
+                    from app.agents.canvas_extractor import extract_canvas_fields
+                    # Construir um estado fake/leve para extração
+                    state2 = await _build_graph_state(project_id, user, db2)
+                    extracted = await extract_canvas_fields(state2)
+                    if extracted:
+                        updated = await _update_canvas(db2, project_id, extracted)
+                        await _safe_send_json(websocket, {"type": "canvas_update", "canvas": updated})
+            except Exception as exc:
+                log.error("[PIPELINE:%s] BACKGROUND EXTRACTION ERROR: %s", req_id, exc)
+
+        asyncio.create_task(do_canvas_extraction())
+        await _safe_send_json(websocket, {"type": "done"})
+        log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, time.perf_counter() - t_msg)
     
     duration_ms = int(duration_s * 1000)
     try:
@@ -481,117 +487,8 @@ async def _run_standard_pipeline(
         log.error("Failed to log ws standard metric: %s", e)
 
 
-# ─── Debate pipeline ───────────────────────────────────────────────────────────
-
-async def _run_debate_pipeline(
-    websocket: WebSocket,
-    project_id: UUID,
-    user: User,
-    user_content: str,
-    req_id: str,
-    t_msg: float,
-):
-    from app.agents.debate.debate_orchestrator import DebateOrchestrator
-
-    # Save user message first
-    async with AsyncSessionLocal() as db:
-        await _save_message(db, project_id, RoleEnum.USER, user_content)
-
-    debate_text_parts: dict[str, str] = {}  # role -> accumulated text
-
-    try:
-        async with AsyncSessionLocal() as db:
-            state = await _build_graph_state(project_id, user, db)
-            state.chat_history.append(ChatMessageState(
-                role="user", content=user_content,
-                timestamp=datetime.utcnow().isoformat(),
-            ))
-
-            orchestrator = DebateOrchestrator()
-            async for event in orchestrator.run(state, user_content, db):
-                # Forward all events to frontend
-                await websocket.send_text(json.dumps(event))
-
-                # Accumulate text per role for saving to DB
-                if event["type"] == "debate_chunk":
-                    role = event.get("role", "")
-                    alma_name = event.get("alma_name", role)
-                    debate_text_parts.setdefault(alma_name, "")
-                    debate_text_parts[alma_name] += event.get("content", "")
-
-                # Update canvas in DB if event triggers it
-                if event["type"] == "canvas_update":
-                    updates = event.get("updates", {})
-                    if updates:
-                        await _update_canvas(db, project_id, updates)
-                        updated_canvas = await db.execute(
-                            select(ProjectCanvasState).where(
-                                ProjectCanvasState.project_id == project_id
-                            )
-                        )
-                        canvas_row = updated_canvas.scalar_one_or_none()
-                        if canvas_row:
-                            await websocket.send_text(json.dumps({
-                                "type": "canvas_update",
-                                "canvas": canvas_row.canvas_json,
-                            }))
-
-                if event["type"] == "debate_action":
-                    tc = event.get("tool_call", {})
-                    f_name = tc.get("function", {}).get("name")
-                    f_args = tc.get("function", {}).get("arguments", {})
-                    
-                    if f_name == "update_whiteboard":
-                        field = f_args.get("field")
-                        value = f_args.get("value")
-                        if field and value:
-                            await _update_canvas(db, project_id, {field: value})
-                            # Canvas update event is already handled by the DB refresh logic below if we wanted, 
-                            # but for debates we usually send a consolidated canvas_update at the end.
-                            # However, for real-time feel, we could send it now.
-                    
-                    elif f_name in ["add_canvas_node", "add_canvas_edge"]:
-                        await websocket.send_text(json.dumps({
-                            "type": "action",
-                            "token": {
-                                "type": "CANVAS_NODE" if f_name == "add_canvas_node" else "CANVAS_EDGE",
-                                "payload": f_args
-                            }
-                        }))
-                        log.info("[DEBATE:%s] Visual action dispatched: %s", req_id, f_name)
-
-        # Save each Alma's debate turn as a message in DB
-        async with AsyncSessionLocal() as db:
-            for alma_name, content in debate_text_parts.items():
-                if content.strip():
-                    await _save_message(
-                        db, project_id, RoleEnum.ALMA, content, alma_name=alma_name
-                    )
-
-    except Exception as exc:
-        log.error("[DEBATE:%s] ERROR: %s", req_id, exc, exc_info=True)
-        await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
-        await websocket.send_text(json.dumps({"type": "done"}))
-
-    duration_s = time.perf_counter() - t_msg
-    log.info("[DEBATE:%s] DONE total=%.2fs", req_id, duration_s)
-
-    duration_ms = int(duration_s * 1000)
-    try:
-        async with AsyncSessionLocal() as db_metrics:
-            from app.models.sql_models import SystemMetric
-            metric = SystemMetric(
-                endpoint="/api/chat/ws/debate",
-                duration_ms=duration_ms,
-                status_code=200,
-                user_id=user.id
-            )
-            db_metrics.add(metric)
-            await db_metrics.commit()
-            if duration_ms > 40000:
-                log.warning("[DEBATE:%s] SLOW LLM DETECTED: took %dms", req_id, duration_ms)
-    except Exception as e:
-        log.error("Failed to log ws debate metric: %s", e)
+    # Finalizado
+    pass
 
 
 # ─── REST: message history ──────────────────────────────────────────────────────

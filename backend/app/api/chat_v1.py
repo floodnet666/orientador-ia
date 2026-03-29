@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from datetime import datetime
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -27,6 +28,9 @@ from app.models.sql_models import (
     User,
 )
 from app.state.graph_state import CanvasState, ChatMessageState, GraphState, ValidationFlags
+from app.agents.state import BackendState
+from app.agents.graph_factory import backend_graph
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage, ToolMessage
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 log = logging.getLogger("chat.pipeline")
@@ -126,18 +130,48 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
     doc_names = await list_project_documents(project_id, user)
     empirical_docs = [type('Doc', (), {'filename': name, 'id': name}) for name in doc_names]
 
-    return GraphState(
+    return BackendState(
+        messages=messages_as_langchain,
         project_id=str(project_id),
         user_id=str(user.id),
         academic_level=project.academic_level.value,
-        chat_history=chat_history,
-        current_canvas=CanvasState(**canvas_data) if canvas_data else CanvasState(),
         active_theoretical_alma=theo_name,
         active_methodological_alma=meth_name,
-        human_guidelines=project.human_guidelines or "",
         active_soul_ids=[str(sid) for sid in (project.soul_ids or [])],
-        empirical_documents=empirical_docs
+        orchestrator_directive="",
+        human_guidelines=project.human_guidelines or "",
+        current_canvas=CanvasState(**canvas_data) if canvas_data else CanvasState(),
+        canvas_fields_to_update={},
+        validation_flags=ValidationFlags(),
+        empirical_documents=empirical_docs,
+        is_debate_mode=False,
+        debate_round_number=0,
+        previous_debate_summary=None,
+        debate_history=[]
     )
+
+
+async def _build_messages_list(project_id: UUID, db: AsyncSession) -> List[BaseMessage]:
+    """Auxiliar para carregar histórico como BaseMessages do LangChain."""
+    msgs_result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.project_id == project_id)
+        .order_by(ChatMessage.created_at.asc())
+        .limit(50)
+    )
+    history = msgs_result.scalars().all()
+    
+    ls_messages = []
+    for m in history:
+        if m.role == RoleEnum.USER:
+            ls_messages.append(HumanMessage(content=m.content))
+        elif m.role == RoleEnum.ALMA:
+            # TODO: Restaurar tool_calls se necessário para o estado
+            ls_messages.append(AIMessage(content=m.content, name=m.alma_name))
+        elif m.role == RoleEnum.SYSTEM:
+            ls_messages.append(SystemMessage(content=m.content))
+            
+    return ls_messages
 
 
 async def _save_message(
@@ -316,152 +350,110 @@ async def _run_standard_pipeline(
     user_content: str,
     req_id: str,
     t_msg: float,
-    agent_config_override: dict | None = None,  # F5
+    agent_config_override: dict | None = None,
 ):
     async with AsyncSessionLocal() as db:
-        # 1. Save user message
+        # 1. Salvar mensagem do usuário
         await _save_message(db, project_id, RoleEnum.USER, user_content)
 
-        # 2. Guardrails
+        # 2. Guardrails (Plágio etc)
         from app.agents.guardrails import check_plagiarism, PLAGIARISM_RESPONSE
         is_violation, confidence = await check_plagiarism(str(user_content))
-        log.info("[PIPELINE:%s] 2_GUARDRAILS violation=%s conf=%.2f", req_id, is_violation, confidence)
         if is_violation and confidence > 0.7:
             await _save_message(db, project_id, RoleEnum.SYSTEM, PLAGIARISM_RESPONSE)
             await _safe_send_json(websocket, {"type": "guardrail_block", "text": PLAGIARISM_RESPONSE})
             await _safe_send_json(websocket, {"type": "done"})
             return
 
-        # 3. Build GraphState
-        state = await _build_graph_state(project_id, user, db)
-        state.chat_history.append(ChatMessageState(
-            role="user", content=user_content,
-            timestamp=datetime.utcnow().isoformat(),
-        ))
-
-        # 4. Orchestrate
-        from app.agents.orchestrator import orchestrate
+        # 3. Preparar o Estado Inicial do Grafo
+        ls_messages = await _build_messages_list(project_id, db)
+        # Adiciona a mensagem atual se ainda não estiver no histórico do BD
+        ls_messages.append(HumanMessage(content=user_content))
         
-        decision = await orchestrate(state, user_content)
-        intent = decision.get("intent", "DIALOG")
-        state.orchestrator_directive = decision.get("directive", "")
-        log.info("[PIPELINE:%s] 4_ORCHESTRATE alma=%s intent=%s", req_id, decision.get("selected_alma"), intent)
+        # Carregar metadados do projeto
+        initial_state = await _build_graph_state(project_id, user, db)
+        initial_state["messages"] = ls_messages
 
-        # 5. Select Alma
-        from app.agents.almas.base_alma import get_alma_by_name, ALMA_REGISTRY, StatelessAlma
-        from app.models.agent_config import AgentConfig
+        # 4. Executar o Grafo via stream
+        log.info("[PIPELINE:%s] LangGraph Executing...", req_id)
+        
+        full_response_text = ""
+        last_alma_name = initial_state["active_theoretical_alma"] # Default
 
-        alma = None
-        alma_name = ""
-
-        if agent_config_override:
-            try:
-                config_obj = AgentConfig(**agent_config_override)
-                alma = StatelessAlma(config_obj)
-                alma_name = config_obj.name
-                log.info("[PIPELINE:%s] Using StatelessAlma override: %s", req_id, alma_name)
-            except Exception as e:
-                log.error("[PIPELINE:%s] Invalid agent_config_override: %s", req_id, e)
-
-        if not alma:
-            alma_name = (
-                state.active_methodological_alma
-                if decision.get("selected_alma") == "METHODOLOGICAL"
-                else state.active_theoretical_alma
-            )
-            alma = get_alma_by_name(alma_name) or (
-                next(iter(ALMA_REGISTRY.values()), None) if ALMA_REGISTRY else None
-            )
-
-        # 5.1 Enforce search if intent is SEARCH
-        if intent == "SEARCH" and state.orchestrator_directive:
-            # We explicitly tell the Alma to use search tools
-            state.orchestrator_directive += "\n[URGENTE]: Utilize obrigatoriamente a ferramenta DeepSearch para fundamentar esta resposta."
-
-        # 6. Stream alma response with tool handling
-        full_response = ""
-        import json as j
-        if alma:
-            async for chunk in alma.stream_response(state, websocket):
-                # Detect Native Tool Calls (NTC) from OllamaClient
-                if chunk.startswith('{"tool_calls":'):
-                    try:
-                        data = j.loads(chunk)
-                        tool_calls = data.get("tool_calls", [])
-                        log.info("[PIPELINE:%s] NTC RAW: %s", req_id, chunk)
-                        for tc in tool_calls:
-                            f_name = tc.get("function", {}).get("name")
-                            f_args = tc.get("function", {}).get("arguments", {})
-                            
-                            if f_name == "update_whiteboard":
-                                field = f_args.get("field")
-                                value = f_args.get("value")
-                                if field and value:
-                                    log.info("[PIPELINE:%s] NTC execution: update_whiteboard(%s)", req_id, field)
-                                    # Update DB immediately
-                                    updated = await _update_canvas(db, project_id, {field: value})
-                                    # Notify UI
-                                    await _safe_send_json(websocket, {
-                                        "type": "canvas_update", 
-                                        "canvas": updated
-                                    })
-                            
-                            elif f_name == "add_canvas_node":
-                                log.info("[PIPELINE:%s] NTC execution: add_canvas_node(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_node": f_args})
-                                await _safe_send_json(websocket, {
-                                    "type": "action",
-                                    "token": {
-                                        "type": "CANVAS_NODE",
-                                        "payload": f_args
-                                    }
-                                })
-                                log.info("[PIPELINE:%s] Visual node added", req_id)
-                            
-                            elif f_name == "add_canvas_edge":
-                                log.info("[PIPELINE:%s] NTC execution: add_canvas_edge(%s)", req_id, f_args)
-                                # Persist visual data
-                                await _update_canvas(db, project_id, {"canvas_edge": f_args})
-                                await _safe_send_json(websocket, {
-                                    "type": "action",
-                                    "token": {
-                                        "type": "CANVAS_EDGE",
-                                        "payload": f_args
-                                    }
-                                })
-                                log.info("[PIPELINE:%s] Visual edge added", req_id)
-                    except Exception as e:
-                        log.error("[PIPELINE:%s] NTC Processing Error: %s", req_id, e, exc_info=True)
-                    continue
-
-                # Standard text or legacy actions
-                full_response += chunk
-                await _safe_send_json(websocket, {"type": "chunk", "text": chunk})
-        else:
-            full_response = "Nenhuma Alma foi selecionada para este projeto ainda."
-            await _safe_send_json(websocket, {"type": "chunk", "text": full_response})
-
-        # 7. Save response
-        await _save_message(db, project_id, RoleEnum.ALMA, full_response, alma_name=alma_name)
-
-    # 8. Canvas extraction (background - fallback for 7B models)
-    async def do_canvas_extraction():
         try:
-            async with AsyncSessionLocal() as db2:
-                state2 = await _build_graph_state(project_id, user, db2)
-                from app.agents.canvas_extractor import extract_canvas_fields
-                extracted = await extract_canvas_fields(state2)
-                if extracted:
-                    updated = await _update_canvas(db2, project_id, extracted)
-                    await _safe_send_json(websocket, {"type": "canvas_update", "canvas": updated})
-        except Exception as exc:
-            log.error("[PIPELINE:%s] CANVAS_EXTRACT ERROR: %s", req_id, exc)
+            # Stream mode "messages" ou "values". Usaremos "messages" para chunks em tempo real.
+            # No LangGraph 0.2+, astream(..., stream_mode="messages") é ideal para streaming de tokens.
+            async for msg, metadata in backend_graph.astream(
+                initial_state, 
+                stream_mode="messages"
+            ):
+                # 4.1. Tratar chunks de texto (tokens)
+                if isinstance(msg, AIMessage) and msg.content:
+                    chunk = msg.content
+                    if isinstance(chunk, list): # Caso de tool calls misturadas
+                        text_part = "".join([c.get("text", "") for c in chunk if isinstance(c, dict) and c.get("type") == "text"])
+                        if text_part:
+                            full_response_text += text_part
+                            await _safe_send_json(websocket, {"type": "chunk", "text": text_part})
+                    else:
+                        full_response_text += chunk
+                        await _safe_send_json(websocket, {"type": "chunk", "text": chunk})
 
-    asyncio.create_task(do_canvas_extraction())
-    await _safe_send_json(websocket, {"type": "done"})
-    duration_s = time.perf_counter() - t_msg
-    log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, duration_s)
+                # 4.2. Tratar Tool Calls (Eventos Visuais/Search)
+                # O metadata contém o node original. Se for "tools", podemos interceptar se quisermos, 
+                # mas o nó de ferramentas já executa. O que queremos é enviar pro Frontend.
+                source_node = metadata.get("langgraph_node")
+                
+                if source_node == "alma" and isinstance(msg, AIMessage) and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        t_name = tc["name"]
+                        t_args = tc["args"]
+                        log.info("[PIPELINE:%s] Tool Call: %s(%s)", req_id, t_name, t_args)
+                        
+                        # Mapear para eventos do Frontend
+                        if t_name == "update_whiteboard":
+                            updated = await _update_canvas(db, project_id, {t_args["field"]: t_args["value"]})
+                            await _safe_send_json(websocket, {"type": "canvas_update", "canvas": updated})
+                        elif t_name == "add_canvas_node":
+                            await _update_canvas(db, project_id, {"canvas_node": t_args})
+                            await _safe_send_json(websocket, {"type": "action", "token": {"type": "CANVAS_NODE", "payload": t_args}})
+                        elif t_name == "add_canvas_edge":
+                            await _update_canvas(db, project_id, {"canvas_edge": t_args})
+                            await _safe_send_json(websocket, {"type": "action", "token": {"type": "CANVAS_EDGE", "payload": t_args}})
+
+                # Identificar qual Alma está falando para salvar corretamente
+                if source_node == "maestro":
+                    # O maestro define o selected_alma no estado, mas o astream retorna mensagens.
+                    # Podemos buscar o valor final do estado se necessário, ou inferir.
+                    pass
+
+            # 5. Salvar resposta final
+            # Buscamos a alma selecionada no final da execução (ou usamos fallback)
+            # Nota: para simplicidade, salvamos com o nome da alma ativa no momento.
+            await _save_message(db, project_id, RoleEnum.ALMA, full_response_text, alma_name=last_alma_name)
+
+        except Exception as e:
+            log.error("[PIPELINE:%s] Graph Execution Error: %s", req_id, e, exc_info=True)
+            await _safe_send_json(websocket, {"type": "error", "message": f"Erro na orquestração: {str(e)}"})
+
+        # 6. Extração de Canvas em background (opcional, já que ferramentas agora fazem isso)
+        # Mantido como segurança para modelos que não usam ferramentas mas descrevem no texto
+        async def do_canvas_extraction():
+            try:
+                async with AsyncSessionLocal() as db2:
+                    from app.agents.canvas_extractor import extract_canvas_fields
+                    # Construir um estado fake/leve para extração
+                    state2 = await _build_graph_state(project_id, user, db2)
+                    extracted = await extract_canvas_fields(state2)
+                    if extracted:
+                        updated = await _update_canvas(db2, project_id, extracted)
+                        await _safe_send_json(websocket, {"type": "canvas_update", "canvas": updated})
+            except Exception as exc:
+                log.error("[PIPELINE:%s] BACKGROUND EXTRACTION ERROR: %s", req_id, exc)
+
+        asyncio.create_task(do_canvas_extraction())
+        await _safe_send_json(websocket, {"type": "done"})
+        log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, time.perf_counter() - t_msg)
     
     duration_ms = int(duration_s * 1000)
     try:
