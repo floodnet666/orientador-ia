@@ -130,7 +130,7 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
     from app.api.empirical import list_project_documents
     doc_names = await list_project_documents(project_id, user)
     empirical_docs = [type('Doc', (), {'filename': name, 'id': name}) for name in doc_names]
-
+    messages_as_langchain = await _build_messages_list(project_id, db)
     return BackendState(
         messages=messages_as_langchain,
         project_id=str(project_id),
