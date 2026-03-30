@@ -46,8 +46,18 @@ export const DebateAlmaSchema = z.object({
   id: z.string(),
   name: z.string(),
   role: z.string(),
-  color: z.string(),
-  avatar: z.string(),
+  color: z.string().optional(),
+  avatar_initials: z.string().optional(),
+});
+
+export const DebateManifestEventSchema = z.object({
+  type: z.literal('debate_manifest'),
+  almas: z.record(z.string(), z.object({
+    id: z.string(),
+    name: z.string(),
+    color: z.string().optional(),
+    avatar_initials: z.string().optional(),
+  })),
 });
 
 export const PanelSelectedEventSchema = z.object({
@@ -60,24 +70,25 @@ export const PanelSelectedEventSchema = z.object({
   almas: z.array(DebateAlmaSchema),
 });
 
-export const DebateTurnStartEventSchema = BaseEventSchema.extend({
+export const DebateTurnStartEventSchema = z.object({
   type: z.literal('debate_turn_start'),
-  alma_id: z.string(),
+  alma_id: z.string().optional(),
   role: z.string(),
   alma_name: z.string(),
 });
 
-export const DebateChunkEventSchema = BaseEventSchema.extend({
+export const DebateChunkEventSchema = z.object({
   type: z.literal('debate_chunk'),
   content: z.string(),
   role: z.string(),
+  alma_name: z.string().optional(),
 });
 
-export const DebateTurnEndEventSchema = BaseEventSchema.extend({
+export const DebateTurnEndEventSchema = z.object({
   type: z.literal('debate_turn_end'),
   role: z.string(),
   alma_name: z.string(),
-  content: z.string(),
+  content: z.string().optional(),
 });
 
 // --- Combined Type ---
@@ -89,6 +100,7 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   DoneEventSchema,
   GuardrailBlockEventSchema,
   ErrorEventSchema,
+  DebateManifestEventSchema,
   PanelSelectedEventSchema,
   DebateTurnStartEventSchema,
   DebateChunkEventSchema,

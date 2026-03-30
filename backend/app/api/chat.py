@@ -85,7 +85,10 @@ async def _build_graph_state(project_id: UUID, user: User, db: AsyncSession) -> 
         select(ProjectCanvasState).where(ProjectCanvasState.project_id == project_id)
     )
     canvas_row = canvas_result.scalar_one_or_none()
-    canvas_data = canvas_row.canvas_json if canvas_row else {}
+    
+    # Safe initialization of canvas_data
+    raw_canvas = canvas_row.canvas_json if canvas_row else {}
+    canvas_data = dict(raw_canvas) if isinstance(raw_canvas, dict) else {}
 
     theo_name, meth_name = "", ""
     if project.theoretical_alma_id:
@@ -204,7 +207,9 @@ async def _update_canvas(db: AsyncSession, project_id: UUID, fields: dict) -> di
         log.warning("[CANVAS] ProjectCanvasState not found for project=%s", project_id)
         return {}
 
-    canvas_data = dict(canvas_row.canvas_json)
+    # Deep copy/dict conversion to avoid mutation issues and clarify types
+    raw_json = canvas_row.canvas_json
+    canvas_data = dict(raw_json) if isinstance(raw_json, dict) else {}
     for key, value in fields.items():
         if value is None:
             continue
@@ -259,10 +264,15 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
         project_id, origin, host, ws_version, "PRESENT" if token else "MISSING"
     )
     
-    # Validação do Token ANTES do accept para evitar handshakes fantasmas
-    user_id = None
+    # Agora sim, aceitamos a conexão IMEDIATAMENTE para estabilizar o handshake
+    await websocket.accept()
+    log.info("[WS] ACCEPTED project=%s | origin=%s", project_id, origin)
+
+    # Validação do Token e User
     if not token:
         log.warning("[WS] REJECTED: Missing token | project=%s", project_id)
+        await _safe_send_json(websocket, {"type": "error", "message": "Missing authentication token"})
+        await websocket.close(code=4001)
         return
     
     # Validação JWT
@@ -273,17 +283,16 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
         user_id = payload.get("sub")
     except JWTError as exc:
         log.error("[WS] AUTH FAILED: Invalid token | %s", exc)
+        await _safe_send_json(websocket, {"type": "error", "message": "Invalid or expired token"})
+        await websocket.close(code=4001)
         return
-
-    # Agora sim, aceitamos a conexão
-    await websocket.accept()
-    log.info("[WS] ACCEPTED project=%s | origin=%s", project_id, origin)
 
     try:
         async with AsyncSessionLocal() as db:
             user_result = await db.execute(select(User).where(User.id == user_id))
             user = user_result.scalar_one_or_none()
             if not user:
+                await _safe_send_json(websocket, {"type": "error", "message": "User not found"})
                 await websocket.close(code=4001)
                 return
             project_result = await db.execute(
@@ -291,6 +300,7 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
             )
             if not project_result.scalar_one_or_none():
                 log.warning("[WS] PROJECT ACCESS DENIED: %s for user %s", project_id, user.email)
+                await _safe_send_json(websocket, {"type": "error", "message": "Access denied to this project"})
                 await websocket.close(code=4003)
                 return
 
@@ -298,6 +308,11 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
         
         # Enviar evento de conexão bem-sucedida para o frontend
         await _safe_send_json(websocket, {"type": "connected", "user": user.email})
+
+        # Verificar se a conexão ainda está aberta antes de entrar no loop
+        if websocket.client_state != WebSocketState.CONNECTED:
+            log.warning("[WS] Connection lost after handshake/auth for project %s", project_id)
+            return
 
         while True:
             data = await websocket.receive_text()
@@ -350,14 +365,8 @@ async def _run_standard_pipeline(
         # 1. Salvar mensagem do usuário
         await _save_message(db, project_id, RoleEnum.USER, user_content)
 
-        # 2. Guardrails (Plágio etc)
-        from app.agents.guardrails import check_plagiarism, PLAGIARISM_RESPONSE
-        is_violation, confidence = await check_plagiarism(str(user_content))
-        if is_violation and confidence > 0.7:
-            await _save_message(db, project_id, RoleEnum.SYSTEM, PLAGIARISM_RESPONSE)
-            await _safe_send_json(websocket, {"type": "guardrail_block", "text": PLAGIARISM_RESPONSE})
-            await _safe_send_json(websocket, {"type": "done"})
-            return
+        # 2. Guardrails ELIMINADOS conforme solicitação do usuário.
+        # Nenhuma filtragem de plágio ou bloqueio será aplicada aqui.
 
         # 3. Preparar o Estado Inicial do Grafo
         ls_messages = await _build_messages_list(project_id, db)
@@ -371,7 +380,8 @@ async def _run_standard_pipeline(
         # 4. Executar o Grafo via stream
         log.info("[PIPELINE:%s] LangGraph Executing (astream_events)...", req_id)
         
-        full_response_text = ""
+        full_response_text: str = ""
+        debate_responses: dict[str, str] = {}
         last_alma_name = initial_state.get("active_theoretical_alma", "Orientador")
 
         try:
@@ -384,7 +394,6 @@ async def _run_standard_pipeline(
                 version="v2"
             ):
                 kind = event["event"]
-                tags = event.get("tags", [])
                 data = event.get("data", {})
                 metadata = event.get("metadata", {})
                 node_name = metadata.get("langgraph_node")
@@ -408,28 +417,32 @@ async def _run_standard_pipeline(
 
                 # [B] Streaming de Chunks (Normal ou Debate)
                 elif kind == "on_chat_model_stream":
+                    if node_name == "maestro":
+                        # Ocultar lógica do maestro do utilizador
+                        continue
+
                     chunk = data.get("chunk")
-                    if chunk and chunk.content:
+                    if chunk and hasattr(chunk, 'content') and chunk.content:
+                        content = str(chunk.content)
                         if node_name in DEBATE_ALMAS:
                             await _safe_send_json(websocket, {
                                 "type": "debate_chunk",
-                                "content": chunk.content,
-                                "role": node_name
+                                "content": content,
+                                "role": node_name,
+                                "alma_name": DEBATE_ALMAS[node_name].name
                             })
+                            debate_responses[node_name] = debate_responses.get(node_name, "") + content
                         else:
                             await _safe_send_json(websocket, {
                                 "type": "chunk",
-                                "text": chunk.content
+                                "text": content
                             })
-                            full_response_text += chunk.content
+                            full_response_text = (full_response_text or "") + content
 
                 # [C] Tool Calls e Atualizações Visuais
                 elif kind == "on_tool_end":
                     t_name = event.get("name")
-                    t_output = data.get("output")
-                    
                     if t_name in ["update_whiteboard", "add_canvas_node", "add_canvas_edge"]:
-                        # Recarrega canvas para o frontend
                         async with AsyncSessionLocal() as db_sync:
                             res = await db_sync.execute(
                                 select(ProjectCanvasState).where(ProjectCanvasState.project_id == project_id)
@@ -441,10 +454,18 @@ async def _run_standard_pipeline(
                                     "canvas": canvas_row.canvas_json
                                 })
 
-            # 5. Salvar resposta final
-            # Buscamos a alma selecionada no final da execução (ou usamos fallback)
-            # Nota: para simplicidade, salvamos com o nome da alma ativa no momento.
-            await _save_message(db, project_id, RoleEnum.ALMA, full_response_text, alma_name=last_alma_name)
+            # 5. Salvar respostas (Normal ou Debate)
+            if debate_responses:
+                # Salvar cada interlocutor do debate
+                for node_name, text in debate_responses.items():
+                    if text.strip() and node_name in DEBATE_ALMAS:
+                        alma = DEBATE_ALMAS[node_name]
+                        await _save_message(db, project_id, RoleEnum.ALMA, text, alma_name=alma.name)
+                log.info("[PIPELINE:%s] SAVED %d debate turns", req_id, len(debate_responses))
+            
+            if full_response_text.strip():
+                await _save_message(db, project_id, RoleEnum.ALMA, full_response_text, alma_name=last_alma_name)
+                log.info("[PIPELINE:%s] SAVED final response", req_id)
 
         except Exception as e:
             log.error("[PIPELINE:%s] Graph Execution Error: %s", req_id, e, exc_info=True)
@@ -455,9 +476,15 @@ async def _run_standard_pipeline(
         async def do_canvas_extraction():
             try:
                 async with AsyncSessionLocal() as db2:
-                    from app.agents.canvas_extractor import extract_canvas_fields
                     # Construir um estado fake/leve para extração
                     state2 = await _build_graph_state(project_id, user, db2)
+                    
+                    # Se for modo DEBATE, pulamos a extração automática (pedido do usuário)
+                    if state2.get("intent") == "DEBATE" or state2.get("selected_alma") == "DEBATE":
+                        log.info("[PIPELINE:%s] Skipping extraction in DEBATE mode", req_id)
+                        return
+
+                    from app.agents.canvas_extractor import extract_canvas_fields
                     extracted = await extract_canvas_fields(state2)
                     if extracted:
                         updated = await _update_canvas(db2, project_id, extracted)
@@ -469,7 +496,7 @@ async def _run_standard_pipeline(
         await _safe_send_json(websocket, {"type": "done"})
         log.info("[PIPELINE:%s] DONE total=%.2fs", req_id, time.perf_counter() - t_msg)
     
-    duration_ms = int(duration_s * 1000)
+    duration_ms = int((time.perf_counter() - t_msg) * 1000)
     try:
         async with AsyncSessionLocal() as db_metrics:
             from app.models.sql_models import SystemMetric

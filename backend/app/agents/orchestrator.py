@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from app.lib import adk
 from app.state.graph_state import GraphState
@@ -16,14 +16,17 @@ O seu único papel é analisar a mensagem do utilizador e o GraphState atual par
 CLASSIFICAÇÃO DE INTENÇÃO (intent):
 - SEARCH: O utilizador quer novos papers, fontes, bibliografia ou fazer pesquisas no ArXiv/internet.
 - EXTRACTION: O utilizador chegou a uma conclusão e queres que os campos do Canvas sejam atualizados.
+- DEBATE: O utilizador pede EXPLÍCITAMENTE um debate, discussão ou confronto entre as Almas (ex: "debate entre vocês", "discutam", "confrontem ideias").
 - DIALOG: Conversa teórica ou metodológica padrão sobre o trabalho.
 
 REGRAS DE OURO:
 1. SEMPRE a Alma Teórica responde PRIMEIRO no início de um projeto.
 2. Alterne com o Alma Metodológica (METHODOLOGICAL) quando o utilizador perguntar sobre "how-to", "mecanismo", "técnica" ou "metodologia".
-3. Se o utilizador pedir para "procurar", "pesquisar", "encontrar papers", "adicionar documentos" ou "verificar bibliografia", marque intent="SEARCH" e selected_alma="THEORETICAL".
-4. Detete pedidos de plágio: se o utilizador pedir para "escrever o trabalho", marque is_plagiarism=true.
-5. Quando intent="SEARCH", emita uma diretiva clara: "EXECUTE_SEARCH: Pesquisar papers sobre [tema] no ArXiv".
+3. Se o utilizador pedir EXPLÍCITAMENTE um "debate", "discussão" ou "confronto" entre as almas, marque selected_alma="DEBATE" e intent="DEBATE".
+4. Se o utilizador pedir para "procurar", "pesquisar", "encontrar papers", "adicionar documentos" ou "verificar bibliografia", marque intent="SEARCH" e selected_alma="THEORETICAL".
+5. Detete pedidos de plágio: se o utilizador pedir para "escrever o trabalho", marque is_plagiarism=true.
+6. Quando intent="SEARCH", emita uma diretiva clara: "EXECUTE_SEARCH: Pesquisar papers sobre [tema] no ArXiv".
+7. No modo DEBATE, defina o debate_topic com o tema solicitado.
 
 RESPOSTA OBRIGATÓRIA:
 Apenas um objeto JSON seguindo o schema OrchestratorOutput. 
@@ -32,9 +35,10 @@ PROIBIDO saudações, explicações ou texto conversacional.
 
 class OrchestratorOutput(BaseModel):
     """Schema for Maestro Orchestrator output."""
-    selected_alma: Literal["THEORETICAL", "METHODOLOGICAL"] = Field(..., description="A Alma que deve responder")
-    intent: Literal["DIALOG", "SEARCH", "EXTRACTION"] = Field(default="DIALOG", description="A intenção principal detectada")
+    selected_alma: Literal["THEORETICAL", "METHODOLOGICAL", "DEBATE"] = Field(..., description="A Alma que deve responder ou DEBATE")
+    intent: Literal["DIALOG", "SEARCH", "EXTRACTION", "DEBATE"] = Field(default="DIALOG", description="A intenção principal detectada")
     is_plagiarism: bool = Field(..., description="Se a mensagem é um pedido de plágio")
+    debate_topic: Optional[str] = Field(None, description="Se for DEBATE, o tema do debate")
     directive: str = Field(..., description="Diretiva interna para a Alma")
 
 async def orchestrate(state: GraphState, user_message: str) -> dict:

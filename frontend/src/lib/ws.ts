@@ -24,6 +24,7 @@ export interface DebateCallbacks {
     onDebateChunk: (role: string, content: string) => void
     onDebateTurnEnd: (role: string, almaName: string, content: string) => void
     onDebateQuestion: (tensions: string[], consensus: string[], question: string) => void
+    onDebateManifest: (almas: Record<string, any>) => void
 }
 
 export class ChatSocket {
@@ -103,7 +104,10 @@ export class ChatSocket {
                 const result = ChatEventSchema.safeParse(rawData)
                 
                 if (!result.success) {
-                    console.error('[WS] Contract Violation:', result.error.format())
+                    console.error('[WS] Contract Violation Details:', {
+                        error: result.error.format(),
+                        rawData: rawData
+                    })
                     return
                 }
 
@@ -139,7 +143,10 @@ export class ChatSocket {
                         dc?.onDebateChunk(data.role, data.content)
                         break
                     case 'debate_turn_end':
-                        dc?.onDebateTurnEnd(data.role, data.alma_name, data.content)
+                        dc?.onDebateTurnEnd(data.role, data.alma_name, data.content || '')
+                        break
+                    case 'debate_manifest':
+                        dc?.onDebateManifest(data.almas)
                         break
                     case 'pong':
                         console.debug('[WS] Pong received')

@@ -1,9 +1,9 @@
 from typing import Annotated, Literal, Optional
 from typing_extensions import TypedDict
+from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 
-from app.agents.llm import get_llm
 from app.lib.graph.alma_registry import (
     DEBATE_ALMAS, TURN_ORDER, AlmaRole, AlmaIdentity
 )
@@ -104,12 +104,7 @@ async def _execute_turn(state: DebateState, role: AlmaRole) -> dict:
         f"Apresente sua contribuição como {alma.name}:"
     )
 
-    llm = get_llm(model=alma.model, temperature=0.7)
-    # Turn execution will be picked up by astream_events in the main pipeline
-    # We update the state with the metadata, and the actual content will be filled
-    # by the LLM invocation which is now handled at a higher level or via streaming.
-    # Note: For langgraph astream_events to capture the model, we need to invoke it inside the node.
-    
+    llm = ChatOllama(model=alma.model)
     response = await llm.ainvoke([
         SystemMessage(content=system),
         HumanMessage(content=human),
@@ -165,7 +160,7 @@ async def synthesis_node(state: DebateState) -> dict:
         "Produza a síntese final:"
     )
 
-    llm = get_llm(model=alma.model)
+    llm = ChatOllama(model=alma.model)
     response = await llm.ainvoke([
         SystemMessage(content=system),
         HumanMessage(content=human),

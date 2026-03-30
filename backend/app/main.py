@@ -120,7 +120,7 @@ async def startup_event():
     logger.info("Orientador.IA starting up...")
 
     # Verify Ollama models are available
-    for model in [settings.OLLAMA_CHAT_MODEL, settings.OLLAMA_GUARDRAIL_MODEL]:
+    for model in [settings.OLLAMA_CHAT_MODEL]:
         available = await ollama_client.check_model(model)
         if not available:
             logger.warning(

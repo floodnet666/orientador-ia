@@ -11,13 +11,7 @@ interface Props {
     isUploading?: boolean
 }
 
-type DebateRole = 'primaria' | 'complementar' | 'antagonista' | 'metodologica' | 'synthesis'
-
-// HELPER: Defensive Role Style Lookup
-const getRoleData = (role: string, map: Record<DebateRole, string>, fallback: string): string => {
-    const key = role?.toLowerCase() as DebateRole;
-    return map[key] || fallback;
-};
+type DebateRole = 'PRIMARIA' | 'COMPLEMENTAR' | 'ANTAGONISTA' | 'METODOLOGICA'
 
 interface DebateTurn {
     role: DebateRole
@@ -33,35 +27,31 @@ interface DebateQuestionData {
 }
 
 interface ActivePanel {
-    primaria: { name: string; rationale?: string }
-    complementar: { name: string; rationale?: string }
-    antagonista: { name: string; angle?: string }
-    metodologica: { name: string }
-    synthesis?: { name: string }
+    PRIMARIA: { name: string; rationale?: string }
+    COMPLEMENTAR: { name: string; rationale?: string }
+    ANTAGONISTA: { name: string; angle?: string }
+    METODOLOGICA: { name: string }
 }
 
 const ROLE_STYLES: Record<DebateRole, string> = {
-    primaria: 'border-violet-500/40 bg-violet-500/10',
-    complementar: 'border-cyan-500/40 bg-cyan-500/10',
-    antagonista: 'border-rose-500/40 bg-rose-500/10',
-    metodologica: 'border-amber-500/40 bg-amber-500/10',
-    synthesis: 'border-slate-500/40 bg-slate-500/10',
+    PRIMARIA: 'border-violet-500/40 bg-violet-500/10',
+    COMPLEMENTAR: 'border-cyan-500/40 bg-cyan-500/10',
+    ANTAGONISTA: 'border-rose-500/40 bg-rose-500/10',
+    METODOLOGICA: 'border-amber-500/40 bg-amber-500/10',
 }
 
 const ROLE_NAME_STYLES: Record<DebateRole, string> = {
-    primaria: 'text-violet-400',
-    complementar: 'text-cyan-400',
-    antagonista: 'text-rose-400',
-    metodologica: 'text-amber-400',
-    synthesis: 'text-slate-400',
+    PRIMARIA: 'text-violet-400',
+    COMPLEMENTAR: 'text-cyan-400',
+    ANTAGONISTA: 'text-rose-400',
+    METODOLOGICA: 'text-amber-400',
 }
 
 const ROLE_LABELS: Record<DebateRole, string> = {
-    primaria: 'Primária',
-    complementar: 'Complementar',
-    antagonista: 'Antagonista',
-    metodologica: 'Metodológica',
-    synthesis: 'Síntese',
+    PRIMARIA: 'Primária',
+    COMPLEMENTAR: 'Complementar',
+    ANTAGONISTA: 'Antagonista',
+    METODOLOGICA: 'Metodológica',
 }
 
 const CHAT_ROLE_STYLES = {
@@ -71,11 +61,10 @@ const CHAT_ROLE_STYLES = {
 }
 
 const DEBATE_ALIGNMENT: Record<DebateRole, string> = {
-    primaria: 'mr-auto ml-0',
-    complementar: 'ml-auto mr-0',
-    antagonista: 'mr-auto ml-0 border-rose-500/30',
-    metodologica: 'mx-auto border-amber-500/30',
-    synthesis: 'mx-auto border-slate-500/30',
+    PRIMARIA: 'mr-auto ml-0',
+    COMPLEMENTAR: 'ml-auto mr-0',
+    ANTAGONISTA: 'mr-auto ml-0 border-rose-500/30',
+    METODOLOGICA: 'mx-auto border-amber-500/30',
 }
 
 export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
@@ -99,7 +88,6 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
     const [debateQuestion, setDebateQuestion] = useState<DebateQuestionData | null>(null)
     const [systemStatus, setSystemStatus] = useState<string | null>(null)
     const [isDebating, setIsDebating] = useState(false)
-    const [debateAlmas, setDebateAlmas] = useState<Record<string, any>>({})
 
     // Expose debate callbacks so project page can wire them up
     // We use a module-level event bus pattern via CustomEvent
@@ -111,47 +99,35 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                     setSystemStatus(data.message)
                     setIsDebating(true)
                     break
-                case 'debate_manifest':
-                    setDebateAlmas(data)
-                    setIsDebating(true)
-                    break
                 case 'panel_selected':
-                    setDebatePanel(data.panel as ActivePanel)
+                    setDebatePanel(data.panel)
                     setDebateTurns([])
                     setDebateQuestion(null)
                     break
                 case 'debate_turn_start':
-                    setActiveDebateRole(data.role?.toLowerCase() as DebateRole)
-                    setDebateTurns(prev => {
-                        const exists = prev.find(t => t.isStreaming && t.role?.toLowerCase() === data.role?.toLowerCase())
-                        if (exists) return prev
-                        return [...prev, {
-                            role: data.role?.toLowerCase() as DebateRole,
-                            almaName: data.almaName || data.alma_name, // fallback for different naming
-                            content: '',
-                            isStreaming: true
-                        }]
-                    })
+                    setActiveDebateRole(data.role as DebateRole)
+                    setDebateTurns(prev => [
+                        ...prev,
+                        { role: data.role, almaName: data.almaName, content: '', isStreaming: true }
+                    ])
                     break
                 case 'debate_chunk':
                     setDebateTurns(prev => {
-                        const next = [...prev]
-                        const last = next[next.length - 1]
-                        if (last && last.role === data.role && last.isStreaming) {
-                            next[next.length - 1] = { ...last, content: last.content + data.content }
+                        const updated = [...prev]
+                        const last = updated[updated.length - 1]
+                        if (last && (last.almaName === data.alma_name || last.role === data.role)) {
+                            updated[updated.length - 1] = { ...last, content: last.content + data.content }
                         }
-                        return next
+                        return updated
                     })
                     break
                 case 'debate_turn_end':
                     setActiveDebateRole(null)
                     setDebateTurns(prev => {
-                        const next = [...prev]
-                        const last = next[next.length - 1]
-                        if (last && last.role === data.role) {
-                            next[next.length - 1] = { ...last, isStreaming: false, content: data.content || last.content }
-                        }
-                        return next
+                        const updated = [...prev]
+                        const last = updated[updated.length - 1]
+                        if (last) updated[updated.length - 1] = { ...last, isStreaming: false }
+                        return updated
                     })
                     break
                 case 'debate_question':
@@ -246,36 +222,28 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                 )}
 
                 {/* Debate turns - WhatsApp Style */}
-                {debateTurns.map((turn, i) => {
-                    // Safe style lookups
-                    const roleStyle = getRoleData(turn.role, ROLE_NAME_STYLES, 'text-slate-400')
-                    const cardStyle = getRoleData(turn.role, ROLE_STYLES, 'border-slate-500/40 bg-slate-500/10')
-                    const alignStyle = getRoleData(turn.role, DEBATE_ALIGNMENT, 'mr-auto ml-0')
-                    const labelStr = getRoleData(turn.role, ROLE_LABELS, 'Alma')
-
-                    return (
-                        <div
-                            key={`debate-${i}`}
-                            className={`rounded-2xl border px-4 py-3 transition-all max-w-[85%] shadow-lg select-text ${cardStyle} ${alignStyle}`}
-                        >
-                            <div className="flex items-center gap-2 mb-1.5 ">
-                                <div className={`w-1.5 h-1.5 rounded-full ${roleStyle.replace('text-', 'bg-')}`} />
-                                <p className={`text-[10px] font-black uppercase tracking-wider ${roleStyle} filter brightness-110`}>
-                                    {turn.almaName}
-                                </p>
-                                <span className={`text-[9px] px-1 py-0.5 rounded-full border ${roleStyle} border-current opacity-40 font-bold`}>
-                                    {labelStr}
+                {debateTurns.map((turn, i) => (
+                    <div
+                        key={`debate-${i}`}
+                        className={`rounded-2xl border px-4 py-3 transition-all max-w-[85%] shadow-lg select-text ${ROLE_STYLES[turn.role]} ${DEBATE_ALIGNMENT[turn.role]}`}
+                    >
+                        <div className="flex items-center gap-2 mb-1.5 ">
+                            <div className={`w-1.5 h-1.5 rounded-full ${ROLE_NAME_STYLES[turn.role].replace('text-', 'bg-')}`} />
+                            <p className={`text-[10px] font-black uppercase tracking-wider ${ROLE_NAME_STYLES[turn.role]}`}>
+                                {turn.almaName}
+                            </p>
+                            <span className={`text-[9px] px-1 py-0.5 rounded-full border ${ROLE_NAME_STYLES[turn.role]} border-current opacity-40 font-bold`}>
+                                {ROLE_LABELS[turn.role]}
+                            </span>
+                            {turn.isStreaming && (
+                                <span className="ml-auto flex gap-0.5 items-center">
+                                    <span className="w-1 h-1 bg-white/60 rounded-full animate-ping" />
                                 </span>
-                                {turn.isStreaming && (
-                                    <span className="ml-auto flex gap-0.5 items-center">
-                                        <span className="w-1 h-1 bg-white/60 rounded-full animate-ping" />
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(turn.content)}</p>
+                            )}
                         </div>
-                    )
-                })}
+                        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(turn.content)}</p>
+                    </div>
+                ))}
 
                 {/* Debate question card */}
                 {debateQuestion && (

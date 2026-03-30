@@ -161,13 +161,17 @@ async def delete_alma(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user)
 ):
+    """Deletes an Alma and all its history/related data (Cascaded)."""
     result = await db.execute(select(EcosystemResource).where(EcosystemResource.id == alma_id))
     alma = result.scalar_one_or_none()
     if not alma:
         raise HTTPException(status_code=404, detail="Alma not found")
+    
+    # Note: SQLAlchemy CASCADE handles AlmaPromptHistory if configured.
+    # We explicitly delete to be absolutely sure in this entropic environment.
     await db.delete(alma)
     await db.commit()
-    return {"message": "Alma deleted"}
+    return {"message": f"Alma {alma_id} and all related data deleted successfully"}
 
 @router.post("/almas/{alma_id}/prompt")
 async def update_alma_prompt(

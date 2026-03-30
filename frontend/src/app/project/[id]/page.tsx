@@ -70,6 +70,7 @@ export default function ProjectPage() {
                 _dispatchDebate('debate_done', {})
                 setStreaming(false)
             },
+            onDebateManifest: (almas) => _dispatchDebate('debate_manifest', almas),
         }
 
         const socket = new ChatSocket()
@@ -142,13 +143,16 @@ export default function ProjectPage() {
     }
 
     return (
-        <main className="flex h-screen bg-slate-900 overflow-hidden select-none">
+        <main className="flex h-screen bg-slate-900 overflow-hidden">
             {/* Chat — Dynamic Width */}
             <section 
                 className="flex flex-col min-w-0 border-r border-white/5 bg-slate-900/40 relative"
                 style={{ width: `${chatWidth}%` }}
             >
                 <header className="px-6 py-4 border-b border-white/10 flex items-center gap-3 bg-slate-900/80 backdrop-blur-md z-10">
+                    <a href="/dashboard" id="back-to-dashboard" className="text-slate-400 hover:text-white transition p-2 rounded-lg bg-white/5 hover:bg-white/10" title="Voltar ao Dashboard">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+                    </a>
                     <span className="text-white/10">|</span>
                     <a href={`/project/${id}/match`} id="return-to-matchmaker" className="text-slate-400 hover:text-white text-[11px] font-bold uppercase tracking-widest transition flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/5 hover:border-indigo-500/50 hover:bg-indigo-500/10">
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>

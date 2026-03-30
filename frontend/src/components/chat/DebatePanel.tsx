@@ -7,10 +7,11 @@ interface AlmaRole {
 }
 
 interface Panel {
-    PRIMARIA: AlmaRole
-    COMPLEMENTAR: AlmaRole
-    ANTAGONISTA: AlmaRole
-    METODOLOGICA: AlmaRole
+    primaria: AlmaRole
+    complementar: AlmaRole
+    antagonista: AlmaRole
+    metodologica: AlmaRole
+    synthesis?: AlmaRole
 }
 
 interface Props {
@@ -19,32 +20,39 @@ interface Props {
 }
 
 const ROLE_CONFIG = {
-    PRIMARIA: {
+    primaria: {
         label: 'Primária',
         color: 'border-violet-500 bg-violet-500/10 text-violet-300',
         dot: 'bg-violet-400',
         badge: 'bg-violet-500/20 text-violet-300 border-violet-500/40',
         icon: '⬤',
     },
-    COMPLEMENTAR: {
+    complementar: {
         label: 'Complementar',
         color: 'border-cyan-500 bg-cyan-500/10 text-cyan-300',
         dot: 'bg-cyan-400',
         badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
         icon: '⬤',
     },
-    ANTAGONISTA: {
+    antagonista: {
         label: 'Antagonista',
         color: 'border-rose-500 bg-rose-500/10 text-rose-300',
         dot: 'bg-rose-400',
         badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
         icon: '⬤',
     },
-    METODOLOGICA: {
+    metodologica: {
         label: 'Metodológica',
         color: 'border-amber-500 bg-amber-500/10 text-amber-300',
         dot: 'bg-amber-400',
         badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+        icon: '⬤',
+    },
+    synthesis: {
+        label: 'Síntese',
+        color: 'border-slate-500 bg-slate-500/10 text-slate-300',
+        dot: 'bg-slate-400',
+        badge: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
         icon: '⬤',
     },
 }
