@@ -47,3 +47,8 @@ uv_lock_err.txt
 
 # temporary backend folders
 tmp_backend/
+
+# Local session/backup artifacts
+*.bak*
+*_logs.txt
+!backend_logs.txt # Keeping for now if it's a log from previous manual tests needed locally but maybe not in git?

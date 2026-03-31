@@ -64,7 +64,7 @@ class BackendState(TypedDict):
     is_debate_mode: bool
     debate_topic: Optional[str]
     debate_round_number: int
-    previous_debate_summary: Optional[str]
+    previous_debate_summary: Optional[dict]
     debate_history: List[dict]
     
     # Roteamento interno

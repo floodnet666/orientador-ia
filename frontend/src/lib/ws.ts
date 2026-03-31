@@ -22,8 +22,8 @@ export interface DebateCallbacks {
     onPanelSelected: (panel: DebatePanel, almas: any[]) => void
     onDebateTurnStart: (role: string, almaName: string) => void
     onDebateChunk: (role: string, content: string) => void
-    onDebateTurnEnd: (role: string, almaName: string, content: string) => void
-    onDebateQuestion: (tensions: string[], consensus: string[], question: string) => void
+    onDebateTurnEnd: (role: string, alma_name: string, content: string) => void
+    onDebateQuestion: (tensions: string[], consensus: string[], question: string, recommendations?: string[]) => void
     onDebateManifest: (almas: Record<string, any>) => void
 }
 
@@ -141,6 +141,14 @@ export class ChatSocket {
                         break
                     case 'debate_chunk':
                         dc?.onDebateChunk(data.role, data.content)
+                        break
+                    case 'debate_question':
+                        dc?.onDebateQuestion(
+                            data.data.tensions,
+                            data.data.consensus,
+                            data.data.question,
+                            data.data.recommendations
+                        )
                         break
                     case 'debate_turn_end':
                         dc?.onDebateTurnEnd(data.role, data.alma_name, data.content || '')

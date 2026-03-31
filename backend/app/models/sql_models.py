@@ -83,6 +83,8 @@ class EcosystemResource(Base):
     is_approved = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    prompt_history = relationship("AlmaPromptHistory", back_populates="alma", cascade="all, delete-orphan", passive_deletes=True)
+
 
 class Project(Base):
     __tablename__ = "projects"
@@ -99,10 +101,10 @@ class Project(Base):
     )
     human_guidelines = Column(Text, nullable=True)
     theoretical_alma_id = Column(
-        UUID(as_uuid=True), ForeignKey("ecosystem_resources.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("ecosystem_resources.id", ondelete="SET NULL"), nullable=True
     )
     methodological_alma_id = Column(
-        UUID(as_uuid=True), ForeignKey("ecosystem_resources.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("ecosystem_resources.id", ondelete="SET NULL"), nullable=True
     )
     soul_ids = Column(JSON, default=list, server_default='[]')
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -140,7 +142,7 @@ class ChatMessage(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(Enum(RoleEnum, name="role_enum"), nullable=False)
-    alma_id = Column(UUID(as_uuid=True), nullable=True)
+    alma_id = Column(UUID(as_uuid=True), ForeignKey("ecosystem_resources.id", ondelete="SET NULL"), nullable=True)
     alma_name = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -159,7 +161,7 @@ class AlmaPromptHistory(Base):
     changed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     changed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    alma = relationship("EcosystemResource")
+    alma = relationship("EcosystemResource", back_populates="prompt_history")
     changed_by = relationship("User")
 
 

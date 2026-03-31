@@ -152,6 +152,21 @@ async def ensure_empirical_collection_v2() -> str:
         )
     return collection_name
 
+async def delete_project_data(project_id: str) -> None:
+    """Apaga todos os chunks e dados empíricos de um projecto inteiro."""
+    client = get_qdrant()
+    await client.delete(
+        collection_name="empirical_data_v2",
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(key="project_id", match=models.MatchValue(value=project_id)),
+                ]
+            )
+        ),
+    )
+
+
 async def delete_project_document(project_id: str, filename: str) -> None:
     """Apaga apenas os chunks de um documento específico num projecto."""
     client = get_qdrant()
@@ -166,6 +181,7 @@ async def delete_project_document(project_id: str, filename: str) -> None:
             )
         ),
     )
+
 
 async def upsert_empirical_chunk(
     collection_name: str,

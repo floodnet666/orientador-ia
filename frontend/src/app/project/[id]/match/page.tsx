@@ -28,6 +28,7 @@ interface AlmaCatalogCard {
 export default function MatchPage() {
     const router = useRouter()
     const { id } = useParams<{ id: string }>()
+
     const [rawIdea, setRawIdea] = useState('')
     const [results, setResults] = useState<MatchResult | null>(null)
     const [selectedIds, setSelectedIds] = useState<string[]>([])

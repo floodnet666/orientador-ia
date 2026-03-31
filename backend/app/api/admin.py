@@ -167,8 +167,7 @@ async def delete_alma(
     if not alma:
         raise HTTPException(status_code=404, detail="Alma not found")
     
-    # Note: SQLAlchemy CASCADE handles AlmaPromptHistory if configured.
-    # We explicitly delete to be absolutely sure in this entropic environment.
+    # Database-level CASCADE handles AlmaPromptHistory and other dependencies.
     await db.delete(alma)
     await db.commit()
     return {"message": f"Alma {alma_id} and all related data deleted successfully"}

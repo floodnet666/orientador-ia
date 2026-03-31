@@ -93,6 +93,7 @@ async def debate_node(state: BackendState) -> Dict[str, Any]:
     return {
         "messages": [AIMessage(content=result["synthesis"])],
         "debate_history": result["turns"],
+        "previous_debate_summary": result.get("synthesis_structured"),
         "is_debate_mode": False
     }
 

@@ -91,6 +91,16 @@ export const DebateTurnEndEventSchema = z.object({
   content: z.string().optional(),
 });
 
+export const DebateQuestionEventSchema = z.object({
+  type: z.literal('debate_question'),
+  data: z.object({
+    tensions: z.array(z.string()),
+    consensus: z.array(z.string()),
+    question: z.string(),
+    recommendations: z.array(z.string()).optional(),
+  }),
+});
+
 // --- Combined Type ---
 
 export const ChatEventSchema = z.discriminatedUnion('type', [
@@ -105,6 +115,7 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   DebateTurnStartEventSchema,
   DebateChunkEventSchema,
   DebateTurnEndEventSchema,
+  DebateQuestionEventSchema,
   z.object({ type: z.literal('pong') }),
   z.object({ type: z.literal('ping') }),
 ]);

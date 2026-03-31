@@ -126,6 +126,29 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _get_project_or_404(project_id, current_user.id, db)
+    
+    pid_str = str(project_id)
+    
+    # 1. Clean up RAG data in Qdrant (Mesa-Redonda evidence)
+    try:
+        from app.services.qdrant_service import delete_project_data
+        await delete_project_data(pid_str)
+    except Exception as e:
+        # Log error but continue to ensure DB cleanup
+        import logging
+        logging.getLogger("projects").error(f"Failed to delete Qdrant data for project {pid_str}: {e}")
+
+    # 2. Clean up Redis ingestion status keys
+    try:
+        from app.api.empirical import redis_client
+        keys = await redis_client.keys(f"ingest:{pid_str}:*")
+        if keys:
+            await redis_client.delete(*keys)
+    except Exception as e:
+        import logging
+        logging.getLogger("projects").error(f"Failed to clean up Redis keys for project {pid_str}: {e}")
+
+    # 3. DB delete (Cascades automatically handle ChatMessage and ProjectCanvasState)
     await db.delete(project)
     await db.commit()
     return {"success": True}

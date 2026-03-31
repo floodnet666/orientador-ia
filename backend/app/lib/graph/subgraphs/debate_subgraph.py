@@ -2,6 +2,7 @@ from typing import Annotated, Literal, Optional
 from typing_extensions import TypedDict
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
+from pydantic import BaseModel, Field
 
 from app.agents.llm import get_llm
 from app.lib.graph.alma_registry import (
@@ -22,8 +23,17 @@ class DebateState(TypedDict):
     rag_context: Optional[str]          # contexto de documentos (pode ser None)
     turns: list[DebateTurn]             # acumula os turnos já realizados
     current_turn_index: int             # índice no TURN_ORDER
-    synthesis: Optional[str]
+    synthesis: Optional[str]            # Texto livre da síntese
+    synthesis_structured: Optional[dict] # Dados estruturados para o Card (tensions, consensus, question)
     is_complete: bool
+
+class SynthesisOutput(BaseModel):
+    """Esquema para a síntese final estruturada do debate."""
+    summary_text: str = Field(..., description="O resumo narrativo a ser exibido no chat.")
+    points_of_consensus: list[str] = Field(..., description="Lista de pontos onde houve acordo entre as Almas.")
+    core_tensions: list[str] = Field(..., description="Lista de divergências ou tensões em aberto.")
+    recommendations: list[str] = Field(..., description="Sugestões práticas para o utilizador refletir.")
+    question_for_user: str = Field(..., description="Pergunta provocativa final para o utilizador.")
 
 # ── Prompts por Papel ───────────────────────────────────────────────────────
 
@@ -151,30 +161,43 @@ async def synthesis_node(state: DebateState) -> dict:
     canvas_block = _build_canvas_block(state["canvas_summary"])
 
     system = (
-        "Você é um mediador académico neutro.\n"
-        "Sintetize o debate de forma estruturada, em três secções:\n"
-        "1. **Pontos de Convergência** — onde as almas concordam\n"
-        "2. **Tensões Produtivas** — onde divergem de forma útil\n"
-        "3. **Recomendações** — o que o estudante deve considerar\n"
+        "Você é um mediador académico neutral e rigoroso.\n"
+        "O seu objetivo é sintetizar o debate ocorrido entre as Almas e propor o próximo passo da investigação.\n"
         f"{canvas_block}"
     )
 
     human = (
-        f"Tema: \"{state['original_user_message']}\"\n\n"
-        f"{all_turns}\n\n"
-        "Produza a síntese final:"
+        f"Tema Central: \"{state['original_user_message']}\"\n\n"
+        f"Transcrição do Debate:\n{all_turns}\n\n"
+        "Gere a síntese estruturada agora:"
     )
 
     llm = get_llm(model=alma.model)
-    response = await llm.ainvoke([
-        SystemMessage(content=system),
-        HumanMessage(content=human),
-    ])
-
-    return {
-        "synthesis": response.content,
-        "is_complete": True,
-    }
+    structured_llm = llm.with_structured_output(SynthesisOutput)
+    
+    try:
+        res = await structured_llm.ainvoke([
+            SystemMessage(content=system),
+            HumanMessage(content=human),
+        ])
+        
+        return {
+            "synthesis": res.summary_text,
+            "synthesis_structured": {
+                "consensus": res.points_of_consensus,
+                "tensions": res.core_tensions,
+                "question": res.question_for_user,
+                "recommendations": res.recommendations
+            },
+            "is_complete": True,
+        }
+    except Exception as e:
+        # Fallback para texto simples se o estruturado falhar
+        resp = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=human)])
+        return {
+            "synthesis": resp.content,
+            "is_complete": True,
+        }
 
 # ── Roteamento ─────────────────────────────────────────────────────────────
 

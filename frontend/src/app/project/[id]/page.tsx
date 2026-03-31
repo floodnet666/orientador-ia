@@ -65,8 +65,8 @@ export default function ProjectPage() {
                 _dispatchDebate('debate_chunk', { role, content }),
             onDebateTurnEnd: (role, almaName, content) =>
                 _dispatchDebate('debate_turn_end', { role, almaName, content }),
-            onDebateQuestion: (tensions, consensus, question) => {
-                _dispatchDebate('debate_question', { tensions, consensus, question })
+            onDebateQuestion: (tensions, consensus, question, recommendations) => {
+                _dispatchDebate('debate_question', { tensions, consensus, question, recommendations })
                 _dispatchDebate('debate_done', {})
                 setStreaming(false)
             },
@@ -80,7 +80,10 @@ export default function ProjectPage() {
             token,
             (chunk) => appendToLastMessage(chunk),
             (canvas) => updateCanvas(canvas),
-            () => setStreaming(false),
+            () => {
+                setStreaming(false)
+                _dispatchDebate('debate_done', {}) // Fail-safe: ensure UI unlocks when streaming ends
+            },
             (text) => {
                 addMessage({ role: 'system', content: text })
                 setStreaming(false)

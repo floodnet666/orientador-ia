@@ -1,49 +1,71 @@
-# Orientador.IA
+# Orientador.IA: Ecossistema de Orientação Acadêmica (v8.0)
 
-Plataforma de orientação académica multi-agente.
+Plataforma de alta densidade para suporte à pesquisa, escrita e estruturação acadêmica via orquestração multi-agente.
 
-## Pilha Teconológica (LLMs)
+---
 
-A pilha de modelos foi otimizada para eficiência e precisão funcional:
+## 🏗️ Arquitetura Core (v8)
 
-1.  **Almas (Chat):** `qwen3.5:4b`
-    - Substitui o `llama3.1:8b`. 
-    - Mais leve (~3.4GB) e com melhor seguimento de instruções em Português.
-    - O modo *thinking* foi desativado para maximizar a velocidade de streaming.
+| Componente | Tecnologia | Versão/Status |
+| :--- | :--- | :--- |
+| **Backend** | FastAPI / Python 3.12 | Operacional (Async/WebSocket) |
+| **Frontend** | Next.js 15 (App Router) | React + tldraw v4.5.3 |
+| **Vetor DB** | Qdrant | v1.12.1 (Situational Ingestion) |
+| **Embeddings** | `nomic-embed-text` | 768d Multilingual |
+| **Engine RAG** | Hybrid Search (Dense + Sparse) | SPLADE-style term mapping |
+| **Orquestrador** | LangGraph (Stateful Graphs) | v8.0.0 (Non-linear Debate) |
 
-2.  **Orquestrador & Canvas:** `qwen3.5:4b`
-    - Atua como o "Maestro", decidindo qual Alma responde.
-    - Otimizado para saídas JSON estruturadas.
+### 🧭 Topologia do Sistema
+```mermaid
+graph TD
+    User((Usuário)) --> Proxy[Nginx Proxy :8080]
+    Proxy --> Frontend[Next.js :3000]
+    Proxy --> Backend[FastAPI :8000]
+    Backend --> Postgres[(PostgreSQL v16)]
+    Backend --> Qdrant[(Qdrant v1.12)]
+    Backend -- "gRPC/HTTP" --> Ollama[Ollama Host]
+    Frontend -- "WebSocket" --> Backend
+    Backend -- "Action Events" --> Canvas[tldraw Board]
+```
 
-3.  **Guardrails:** `qwen3.5:0.8b`
-    - Substitui o `mistral:7b`.
-    - Modelo ultra-leve (~500MB) para classificação binária rápida de integridade académica.
+---
 
-4.  **Embeddings:** `nomic-embed-text-v2-moe:latest`
-    - Mantido para representação vetorial multilingue de 768 dimensões.
+## 🚀 Funcionalidades Chave
 
-5.  **Cache & State:** `Redis`
-    - Gestão de estados de ingestão assíncrona e cache de sessões Mesa-Redonda.
+### 1. RAG Situacional v2.1.0
+O sistema utiliza **Ingestão Contextual** via `pymupdf4llm`:
+- **Preservação Semântica**: Extração de tabelas, imagens e fórmulas LaTeX em Markdown.
+- **Frases Situacionais**: Cada fragmento (~300 palavras) recebe um resumo contextual (`qwen3.5:0.8b`) antes da vetorização.
+- **Busca Híbrida**: Combinação de similaridade semântica (Densa) com hashing determinístico para termos técnicos (Esparsa).
 
-## Deep Search Engine
+### 2. Debate Mode v8 (Multi-Agente)
+Orquestração via **LangGraph** que automatiza a dialética acadêmica:
+- **Papéis Dinâmicos**: Primária (Tese), Complementar (Síntese) e Antagonista (Antítese).
+- **Situational Grounding**: O estado atual do whiteboard (tldraw) é injetado como contexto nos prompts das Almas.
+- **WebSocket Contract**: Validação rigorosa via **Zod** no frontend para evitar falhas de renderização de turnos.
 
-O Orientador.IA possui o seu próprio motor de pesquisa heurística que contorna as limitações de contexto de base dos LLMs:
+### 3. Soul-Canvas (Whiteboard Ativo)
+Os agentes interagem diretamente com o quadro branco:
+- Chamada de ferramentas para criação de nós, setas e agrupamentos.
+- Renderização em tempo real via **`toRichText`** (protocolo tldraw v4.5.3).
 
--   Busca concorrente assíncrona para não queimar tokens desnecessariamente e não estar limitado aos dados de treino.
--   **RAG Evolution v2.2.0 (Industrial):**
-    - **SPLADE Hashing:** Normalização linguística (Unicode/Accents) para precisão em Português.
-    - **Background Ingestion:** Processamento assíncrono via Redis (sem bloqueio de UI).
-    - **Source Attribution:** Citações automáticas `[Fonte: doc.pdf]` em cada resposta.
-    - **Spotlight UI:** Validação de BBox em tempo real para destaque de evidências.
--   Integração real via API REST Direta:
-    1.  **OpenAlex**: Pesquisa global de artigos Open Access (>250 Milhões de papers).
-    2.  **SciELO**: Busca prioritária em obras de referência Latino-Americanas e da Península Ibérica.
-    3.  **ArXiv**: Consulta de *pre-prints* primariamente de Ciências Exatas e Tecnológicas.
+---
 
-## Como Iniciar
+## 🛠️ Como Iniciar
 
-Execute o ficheiro `start_orientador.bat` na raiz do projeto. Este script irá:
-1. Validar o Docker.
-2. Iniciar os serviços (Postgres, Qdrant, Redis, Ollama).
-3. Descarregar/Actualizar os modelos necessários.
-4. Executar migrações de base de dados e seed de dados.
+1. Certifique-se que o Docker e a instância Host do Ollama estão ativos.
+2. Execute o orquestrador de inicialização:
+```powershell
+./start_orientador.bat
+```
+O script cuidará das migrações do banco, download dos modelos e inicialização dos serviços em rede interna.
+
+---
+
+## 📎 Documentação Complementar
+- [Documentação Técnica (Core)](./DOCUMENTACAO_TECNICA.md)
+- [Guia de Manutenção e Débito](./GUIA_MANUTENCAO.md)
+- [Ciclo de Vida de Almas](./docs/ALMA_LIFECYCLE_INTEGRITY_v1.md)
+
+*v8.0.0 — Protocolo DocumentationSphinx. Sincronizado: 2026-03-31.*
+

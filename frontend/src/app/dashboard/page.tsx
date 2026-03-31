@@ -33,6 +33,8 @@ export default function DashboardPage() {
     const [newForm, setNewForm] = useState({ title: '', domain_area: '', academic_level: 'MASTERS' })
     const [creating, setCreating] = useState(false)
     const { toggleHelpMode, isHelpModeActive, hasSeenOnboarding, completeOnboarding } = useHelp()
+    const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
+    const [deleting, setDeleting] = useState(false)
 
     useEffect(() => {
         if (!loading && !hasSeenOnboarding && projects.length === 0) {
@@ -61,6 +63,20 @@ export default function DashboardPage() {
             setError(e instanceof Error ? e.message : 'Error creating project')
         } finally {
             setCreating(false)
+        }
+    }
+
+    async function deleteProject(id: string) {
+        setDeleting(true)
+        try {
+            await projectsApi.delete(id)
+            setProjects((prev) => prev.filter((p) => p.id !== id))
+            setProjectToDelete(null)
+        } catch (e: unknown) {
+            console.error('[ERRO] Falha ao deletar projeto:', e)
+            alert(e instanceof Error ? e.message : 'Erro ao eliminar projeto')
+        } finally {
+            setDeleting(false)
         }
     }
 
@@ -178,21 +194,72 @@ export default function DashboardPage() {
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {projects.map((p) => (
-                            <Link key={p.id} href={`/project/${p.id}`}
-                                className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl p-5 transition cursor-pointer group">
-                                <div className="flex items-start justify-between mb-3">
-                                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full text-white ${STATUS_COLORS[p.status] || 'bg-slate-600'}`}>
-                                        {p.status}
-                                    </span>
-                                    <span className="text-xs text-slate-500">{p.academic_level}</span>
-                                </div>
-                                <h3 className="text-white font-semibold group-hover:text-indigo-300 transition">{p.title}</h3>
-                                <p className="text-slate-400 text-sm mt-1">{p.domain_area}</p>
-                            </Link>
+                            <div key={p.id} className="relative group">
+                                <Link
+                                    href={`/project/${p.id}`}
+                                    className="block bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl p-5 transition cursor-pointer"
+                                >
+                                    <div className="flex items-start justify-between mb-3">
+                                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full text-white ${STATUS_COLORS[p.status] || 'bg-slate-600'}`}>
+                                            {p.status}
+                                        </span>
+                                        <span className="text-xs text-slate-500 mr-8">{p.academic_level}</span>
+                                    </div>
+                                    <h3 className="text-white font-semibold group-hover:text-indigo-300 transition pr-10">{p.title}</h3>
+                                    <p className="text-slate-400 text-sm mt-1">{p.domain_area}</p>
+                                </Link>
+                                <button
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        console.log('[DEBUG] 🗑️ Iniciando processo de deleção para:', p.title)
+                                        setProjectToDelete(p)
+                                    }}
+                                    className="absolute top-4 right-4 text-slate-400 hover:text-red-400 p-2 rounded-xl transition-all bg-white/10 hover:bg-red-500/20 z-50 border border-white/5"
+                                    title="Eliminar Projeto"
+                                >
+                                    🗑️
+                                </button>
+                            </div>
                         ))}
                     </div>
                 )}
             </div>
+
+            {/* Modal de Confirmação de Deleção */}
+            {projectToDelete && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+                        <h3 className="text-xl font-bold text-white mb-2">Eliminar Projeto?</h3>
+                        <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                            Tem a certeza que deseja eliminar o projeto <span className="text-indigo-400 font-semibold text-base block mt-1">&quot;{projectToDelete.title}&quot;</span>? Esta ação removerá todos os dados associados.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setProjectToDelete(null)}
+                                disabled={deleting}
+                                className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => deleteProject(projectToDelete.id)}
+                                disabled={deleting}
+                                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold transition disabled:bg-red-600/50 flex items-center justify-center gap-2"
+                            >
+                                {deleting ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                        A eliminar...
+                                    </>
+                                ) : (
+                                    'Sim, eliminar'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </main>
     )
 }

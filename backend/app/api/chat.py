@@ -454,6 +454,15 @@ async def _run_standard_pipeline(
                                     "canvas": canvas_row.canvas_json
                                 })
 
+                elif kind == "on_chain_end" and event.get("name") == "debate":
+                    output = data.get("output", {})
+                    summary = output.get("previous_debate_summary")
+                    if summary:
+                        await _safe_send_json(websocket, {
+                            "type": "debate_question",
+                            "data": summary
+                        })
+
             # 5. Salvar respostas (Normal ou Debate)
             if debate_responses:
                 # Salvar cada interlocutor do debate
