@@ -31,6 +31,10 @@ const defaultCanvas: CanvasState = {
     justificativa: { content: '', is_locked: false },
     objetivos: { geral: '', especificos: [] },
     metodologia: { tipo: '', instrumentos: [] },
+    whiteboard: {
+        nodes: [],
+        edges: []
+    }
 }
 
 interface ProjectStore {

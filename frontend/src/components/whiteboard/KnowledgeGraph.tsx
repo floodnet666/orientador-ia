@@ -45,9 +45,11 @@ const nodeTypes = {
 export default function KnowledgeGraph() {
   const { canvas, updateCanvasField } = useProjectStore()
   const whiteboard = canvas.whiteboard || initialState
+  const initialNodes = whiteboard.nodes || []
+  const initialEdges = whiteboard.edges || []
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(whiteboard.nodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(whiteboard.edges)
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
   // Sincronização com o store
   useEffect(() => {
@@ -78,7 +80,11 @@ export default function KnowledgeGraph() {
   })
 
   // Mapear nós para tipo customizado
-  const styledNodes = useMemo(() => nodes.map(n => ({ ...n, type: 'custom' })), [nodes])
+  // Mapear nós para tipo customizado com fallback
+  const styledNodes = useMemo(() => {
+    if (!nodes) return []
+    return nodes.map(n => ({ ...n, type: 'custom' }))
+  }, [nodes])
 
   return (
     <div style={{ width: '100%', height: '100%' }} className="group relative">
