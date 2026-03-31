@@ -1,4 +1,4 @@
-# Orientador.IA: Ecossistema de Orientação Acadêmica (v8.0)
+# Orientador.IA: Ecossistema de Orientação Acadêmica (v8.1)
 
 Plataforma de alta densidade para suporte à pesquisa, escrita e estruturação acadêmica via orquestração multi-agente.
 
@@ -9,7 +9,7 @@ Plataforma de alta densidade para suporte à pesquisa, escrita e estruturação 
 | Componente | Tecnologia | Versão/Status |
 | :--- | :--- | :--- |
 | **Backend** | FastAPI / Python 3.12 | Operacional (Async/WebSocket) |
-| **Frontend** | Next.js 15 (App Router) | React + tldraw v4.5.3 |
+| **Frontend** | Next.js 15 (App Router) | React Flow + Dagre (v8.1) |
 | **Vetor DB** | Qdrant | v1.12.1 (Situational Ingestion) |
 | **Embeddings** | `nomic-embed-text` | 768d Multilingual |
 | **Engine RAG** | Hybrid Search (Dense + Sparse) | SPLADE-style term mapping |
@@ -25,7 +25,7 @@ graph TD
     Backend --> Qdrant[(Qdrant v1.12)]
     Backend -- "gRPC/HTTP" --> Ollama[Ollama Host]
     Frontend -- "WebSocket" --> Backend
-    Backend -- "Action Events" --> Canvas[tldraw Board]
+    Backend -- "Action Events" --> Canvas[Knowledge Graph]
 ```
 
 ---
@@ -44,10 +44,11 @@ Orquestração via **LangGraph** que automatiza a dialética acadêmica:
 - **Situational Grounding**: O estado atual do whiteboard (tldraw) é injetado como contexto nos prompts das Almas.
 - **WebSocket Contract**: Validação rigorosa via **Zod** no frontend para evitar falhas de renderização de turnos.
 
-### 3. Soul-Canvas (Whiteboard Ativo)
-Os agentes interagem diretamente com o quadro branco:
-- Chamada de ferramentas para criação de nós, setas e agrupamentos.
-- Renderização em tempo real via **`toRichText`** (protocolo tldraw v4.5.3).
+### 3. Knowledge Graph (Whiteboard Determinístico)
+Os agentes interagem diretamente com o quadro branco via **React Flow**:
+- **Action Engine (Zod)**: Processamento de eventos `CANVAS_NODE` e `CANVAS_EDGE` sem alucinações espaciais.
+- **Auto-Layout (Dagre)**: Posicionamento hierárquico automático (Top-Down).
+- **Glassmorphism**: Estilização temática vinculada às Almas (PB, MF, PF).
 
 ---
 

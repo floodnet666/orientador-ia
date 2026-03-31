@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useProjectStore, CanvasState } from '@/store/project'
 import { projectsApi } from '@/lib/api'
 import EvidenceManager from '@/components/project/EvidenceManager'
-import { WhiteboardCanvas } from '@/components/whiteboard/WhiteboardCanvas'
+import KnowledgeGraph from '@/components/whiteboard/KnowledgeGraph'
 
 
 const FIELD_LABELS: Record<string, string> = {
@@ -242,7 +242,7 @@ export default function CanvasPanel({ projectId }: Props) {
                     <EvidenceManager projectId={projectId} />
                 ) : (
                     <div className="h-full w-full">
-                        <WhiteboardCanvas />
+                        <KnowledgeGraph />
                     </div>
                 )}
             </div>

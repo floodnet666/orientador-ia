@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { Alma } from '@/lib/api'
+import { Node, Edge } from '@xyflow/react'
 
 export interface CanvasState {
     tema: { content: string; is_locked: boolean }
@@ -7,7 +8,10 @@ export interface CanvasState {
     justificativa: { content: string; is_locked: boolean }
     objetivos: { geral: string; especificos: string[] }
     metodologia: { tipo: string; instrumentos: string[] }
-    whiteboard?: any
+    whiteboard?: {
+        nodes: Node[]
+        edges: Edge[]
+    }
 }
 
 export interface ChatMessage {
