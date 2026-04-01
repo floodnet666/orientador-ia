@@ -23,9 +23,11 @@ class DebateState(TypedDict):
     rag_context: Optional[str]          # contexto de documentos (pode ser None)
     turns: list[DebateTurn]             # acumula os turnos já realizados
     current_turn_index: int             # índice no TURN_ORDER
+    panel: Optional[Any]                # O painel de almas selecionadas/geradas
     synthesis: Optional[str]            # Texto livre da síntese
     synthesis_structured: Optional[dict] # Dados estruturados para o Card (tensions, consensus, question)
     is_complete: bool
+
 
 class SynthesisOutput(BaseModel):
     """Esquema para a síntese final estruturada do debate."""
@@ -98,10 +100,31 @@ def _build_rag_block(rag_context: Optional[str]) -> str:
 
 async def _execute_turn(state: DebateState, role: AlmaRole) -> dict:
     """Executa um único turno para a alma do papel especificado."""
-    alma: AlmaIdentity = DEBATE_ALMAS[role]
+    # Resolve identidade dinamicamente do panel se disponível, senão usa registry
+    base_alma: AlmaIdentity = DEBATE_ALMAS[role]
+    alma_name = base_alma.name
+    alma_id = base_alma.id
 
+    if state.get("panel"):
+        role_key = role.upper()
+        # Busca no objeto via getattr (funciona para Pydantic/Classes) ou dict
+        panel = state["panel"]
+        role_data = getattr(panel, role_key, None) if not isinstance(panel, dict) else panel.get(role_key)
+        if role_data:
+            alma_name = getattr(role_data, 'alma_name', getattr(role_data, 'name', alma_name))
+            alma_id = getattr(role_data, 'alma_id', getattr(role_data, 'id', alma_id))
+
+
+    # 3. Construção do Prompt do Sistema
+    # Se houver instruções customizadas (ex: Gênesis), elas têm prioridade de "personalidade"
+    custom_personality = getattr(role_data, 'custom_instructions', "") if role_data else ""
+    
     system = (
-        f"{ROLE_PROMPTS[role]}"
+        f"{ROLE_PROMPTS[role]}\n\n"
+        f"ESTREITAMENTE OBRIGATÓRIO: Você deve assumir a identidade de **{alma_name}**. "
+        f"Use seu léxico específico, tom acadêmico e base teórica original. "
+        "Não seja genérico. Responda como se fosse o próprio autor.\n\n"
+        f"{custom_personality}\n"
         f"{_build_canvas_block(state['canvas_summary'])}"
         f"{_build_rag_block(state.get('rag_context'))}"
     )
@@ -111,10 +134,12 @@ async def _execute_turn(state: DebateState, role: AlmaRole) -> dict:
     human = (
         f"O utilizador disse:\n\"{state['original_user_message']}\"\n\n"
         f"{prior_context}\n\n"
-        f"Apresente sua contribuição como {alma.name}:"
+        f"Apresente sua contribuição como {alma_name}:"
     )
 
-    llm = get_llm(model=alma.model, temperature=0.7)
+
+    llm = get_llm(model=base_alma.model, temperature=0.7)
+
     # Turn execution will be picked up by astream_events in the main pipeline
     # We update the state with the metadata, and the actual content will be filled
     # by the LLM invocation which is now handled at a higher level or via streaming.
@@ -126,11 +151,12 @@ async def _execute_turn(state: DebateState, role: AlmaRole) -> dict:
     ])
 
     new_turn = DebateTurn(
-        alma_id=alma.id,
-        alma_name=alma.name,
+        alma_id=alma_id,
+        alma_name=alma_name,
         alma_role=role,
         content=response.content,
     )
+
 
     return {
         "turns": state["turns"] + [new_turn],

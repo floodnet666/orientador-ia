@@ -42,7 +42,7 @@ class GenesisService:
         # In a real ADK, we'd use a structured output tool or prompt.
         response_text = ""
         async for chunk in ollama_client.chat_stream(
-            model=settings.OLLAMA_GUARDRAIL_MODEL,
+            model=settings.OLLAMA_ORCHESTRATOR_MODEL,
             messages=[
                 {"role": "system", "content": GENESIS_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}

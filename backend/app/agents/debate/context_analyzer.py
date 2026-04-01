@@ -61,7 +61,7 @@ Example output:
 
 context_analyzer_agent = adk.Agent(
     name='context_analyzer',
-    model=f'ollama/{settings.OLLAMA_GUARDRAIL_MODEL}',
+    model=settings.OLLAMA_ORCHESTRATOR_MODEL,
     system_prompt=CONTEXT_ANALYZER_PROMPT,
     output_schema=IntentOutput
 )

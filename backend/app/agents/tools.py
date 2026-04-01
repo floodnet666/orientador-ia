@@ -20,7 +20,7 @@ class WhiteboardInput(BaseModel):
 class CanvasNodeInput(BaseModel):
     id: str = Field(description="ID único e curto para o nó (ex: 'n1', 'n2')")
     label: str = Field(description="Texto visível no nó")
-    concept_type: Optional[str] = Field(None, description="Tipo do conceito (concept, author, tension, method)")
+    type: Optional[str] = Field("PB", description="Tipo do nó: PB (Ponto de Batida), MF (Mar de Fatos), PF (Ponto de Fuga), AI (Agente Interno)")
 
 class CanvasEdgeInput(BaseModel):
     source_id: str = Field(description="ID do nó de origem")
@@ -69,17 +69,18 @@ def update_whiteboard(field: str, value: str) -> str:
     return f"SINAL: Campo '{field}' atualizado com sucesso no Whiteboard."
 
 @tool("add_canvas_node", args_schema=CanvasNodeInput)
-def add_canvas_node(id: str, label: str, concept_type: Optional[str] = None) -> str:
+def add_canvas_node(id: str, label: str, type: str = "PB") -> str:
     """
-    Cria um nó visual no Whiteboard (tldraw). Útil para mapas conceituais e estruturação visual.
+    Cria um nó visual no Whiteboard (React Flow). Útil para mapas conceituais e estruturação visual.
+    TIPOS: PB (Metas/Objetivos), MF (Fatos/Citações), PF (Hipóteses), AI (Ações Agênticas).
     """
-    log.info(f"LangGraph Tool: add_canvas_node id={id}, label='{label}'")
-    return f"SINAL: Nó '{label}' ({id}) adicionado ao Whiteboard."
+    log.info(f"LangGraph Tool: add_canvas_node id={id}, label='{label}', type={type}")
+    return f"SINAL: Nó '{label}' ({id}) do tipo {type} adicionado ao Whiteboard."
 
 @tool("add_canvas_edge", args_schema=CanvasEdgeInput)
 def add_canvas_edge(source_id: str, target_id: str, relation: Optional[str] = None) -> str:
     """
-    Conecta dois nós visuais no Whiteboard (tldraw) para mostrar relações lógicas.
+    Conecta dois nós visuais no Whiteboard (React Flow) para mostrar relações lógicas.
     """
     log.info(f"LangGraph Tool: add_canvas_edge {source_id} -> {target_id}")
     return f"SINAL: Conexão criada entre {source_id} e {target_id}."

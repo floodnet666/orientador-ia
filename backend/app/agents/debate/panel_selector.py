@@ -21,12 +21,16 @@ class AlmaRole(BaseModel):
     alma_id: str
     alma_name: str
     selection_rationale: str
+    score: float = 1.0 # 1.0 for manual selection
+
 
 
 class AntagonistRole(BaseModel):
     alma_id: str
     alma_name: str
     antagonism_angle: str
+    score: float = 1.0
+
 
 
 class SelectedPanel(BaseModel):
@@ -53,7 +57,7 @@ Responder OBRIGATORIAMENTE em JSON seguindo o schema SelectedPanel.
 
 panel_selector_agent = adk.Agent(
     name='panel_selector',
-    model=f'ollama/{settings.OLLAMA_GUARDRAIL_MODEL}',
+    model=settings.OLLAMA_ORCHESTRATOR_MODEL,
     system_prompt=PANEL_SELECTOR_PROMPT,
     output_schema=SelectedPanel
 )
@@ -104,12 +108,16 @@ async def select_panel(
         matches = await search_almas(query_vector, "THEORETICAL", top_k=10)
         
         # Add matches to theo_choices if they are not already there
+        # matches already contain "score" from search_almas
         for m in matches:
             if len(theo_choices) >= 3: break
             if not any(str(a.id) == m["id"] for a in theo_choices):
-                # Find in registry
                 obj = next((a for a in alma_list if str(a.id) == m["id"]), None)
-                if obj: theo_choices.append(obj)
+                if obj:
+                    # Injetar o score no objeto para uso posterior na atribuição
+                    obj._search_score = m.get("score", 0.0)
+                    theo_choices.append(obj)
+
 
     # 3. Assign Roles
     # PRIMARIA
@@ -117,8 +125,10 @@ async def select_panel(
     primaria = AlmaRole(
         alma_id=str(p.id),
         alma_name=p.name,
-        selection_rationale="Proposição central do conselho."
+        selection_rationale="Proposição central do conselho.",
+        score=getattr(p, '_search_score', 1.0)
     )
+
 
     # COMPLEMENTAR
     if len(theo_choices) > 1:
@@ -130,8 +140,10 @@ async def select_panel(
     complementar = AlmaRole(
         alma_id=str(c.id),
         alma_name=c.name,
-        selection_rationale="Extensão e sinergia teórica."
+        selection_rationale="Extensão e sinergia teórica.",
+        score=getattr(c, '_search_score', 1.0)
     )
+
 
     # ANTAGONISTA
     if len(theo_choices) > 2:
@@ -142,8 +154,10 @@ async def select_panel(
     antagonista = AntagonistRole(
         alma_id=str(a.id),
         alma_name=a.name,
-        antagonism_angle="Perspectiva dialética e crítica."
+        antagonism_angle="Perspectiva dialética e crítica.",
+        score=getattr(a, '_search_score', 1.0)
     )
+
 
     # METODOLOGICA
     if meth_choices:
@@ -164,12 +178,14 @@ async def select_panel(
                 metodologica = AlmaRole(
                     alma_id=str(m_obj.id),
                     alma_name=m_obj.name,
-                    selection_rationale="Suporte metodológico (seleção automática)."
+                    selection_rationale="Suporte metodológico (seleção automática).",
+                    score=m_matches[0].get("score", 0.0)
                 )
             else:
-                metodologica = AlmaRole(alma_id="default", alma_name="Avatar Metodológico", selection_rationale="Fallback padrão.")
+                metodologica = AlmaRole(alma_id="default", alma_name="Avatar Metodológico", selection_rationale="Fallback padrão.", score=0.0)
         else:
-            metodologica = AlmaRole(alma_id="default", alma_name="Avatar Metodológico", selection_rationale="Fallback padrão.")
+            metodologica = AlmaRole(alma_id="default", alma_name="Avatar Metodológico", selection_rationale="Fallback padrão.", score=0.0)
+
 
     log.info("[DEBATE] Panel selected in %.2fs: P=%s, C=%s, A=%s, M=%s", 
              time.perf_counter() - t0, primaria.alma_name, complementar.alma_name, antagonista.alma_name, metodologica.alma_name)

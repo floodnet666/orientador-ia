@@ -400,10 +400,31 @@ async def _run_standard_pipeline(
 
                 # [A] Eventos de DEBATE (Manifesto e Turnos)
                 if kind == "on_chain_start" and event.get("name") == "debate":
-                    await _safe_send_json(websocket, get_debate_manifest())
-                    log.info("[PIPELINE:%s] Debate manifest sent.", req_id)
+                    # Extrair o painel do input da chain para o manifesto inicial
+                    input_data = data.get("input", {})
+                    panel = None
+                    if isinstance(input_data, dict):
+                        panel = input_data.get("panel")
+                    
+                    await _safe_send_json(websocket, get_debate_manifest(panel))
+                    log.info("[PIPELINE:%s] Debate manifest sent with dynamic panel.", req_id)
+
 
                 elif kind == "on_chat_model_start":
+                    # Tentar resolver do painel dinâmico no estado primeiro
+                    current_panel = state.get("panel")
+                    if current_panel and node_name.upper() in ["PRIMARIA", "COMPLEMENTAR", "ANTAGONISTA", "METODOLOGICA"]:
+                        role_key = node_name.upper()
+                        role_data = getattr(current_panel, role_key, None)
+                        if role_data:
+                            await _safe_send_json(websocket, {
+                                "type": "debate_turn_start",
+                                "alma_id": role_data.alma_id,
+                                "role": node_name,
+                                "alma_name": role_data.alma_name
+                            })
+                            continue # Pular fallback estático
+
                     if node_name in DEBATE_ALMAS:
                         alma = DEBATE_ALMAS[node_name]
                         await _safe_send_json(websocket, {
@@ -415,6 +436,7 @@ async def _run_standard_pipeline(
                     elif node_name == "alma":
                         await _safe_send_json(websocket, {"type": "start"})
 
+
                 # [B] Streaming de Chunks (Normal ou Debate)
                 elif kind == "on_chat_model_stream":
                     if node_name == "maestro":
@@ -425,13 +447,22 @@ async def _run_standard_pipeline(
                     if chunk and hasattr(chunk, 'content') and chunk.content:
                         content = str(chunk.content)
                         if node_name in DEBATE_ALMAS:
+                            # Resolver nome dinâmico para o chunk
+                            display_name = DEBATE_ALMAS[node_name].name
+                            current_panel = state.get("panel")
+                            if current_panel:
+                                role_data = getattr(current_panel, node_name.upper(), None)
+                                if role_data:
+                                    display_name = role_data.alma_name
+
                             await _safe_send_json(websocket, {
                                 "type": "debate_chunk",
                                 "content": content,
                                 "role": node_name,
-                                "alma_name": DEBATE_ALMAS[node_name].name
+                                "alma_name": display_name
                             })
                             debate_responses[node_name] = debate_responses.get(node_name, "") + content
+
                         else:
                             await _safe_send_json(websocket, {
                                 "type": "chunk",
@@ -468,8 +499,18 @@ async def _run_standard_pipeline(
                 # Salvar cada interlocutor do debate
                 for node_name, text in debate_responses.items():
                     if text.strip() and node_name in DEBATE_ALMAS:
-                        alma = DEBATE_ALMAS[node_name]
-                        await _save_message(db, project_id, RoleEnum.ALMA, text, alma_name=alma.name)
+                        # Resolver nome final para persistência
+                        p_name = DEBATE_ALMAS[node_name].name
+                        p_id = DEBATE_ALMAS[node_name].id
+                        current_panel = state.get("panel")
+                        if current_panel:
+                            role_data = getattr(current_panel, node_name.upper(), None)
+                            if role_data:
+                                p_name = role_data.alma_name
+                                p_id = role_data.alma_id
+
+                        await _save_message(db, project_id, RoleEnum.ALMA, text, alma_name=p_name)
+
                 log.info("[PIPELINE:%s] SAVED %d debate turns", req_id, len(debate_responses))
             
             if full_response_text.strip():

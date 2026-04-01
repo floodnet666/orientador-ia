@@ -106,7 +106,7 @@ export class ChatSocket {
                 if (!result.success) {
                     console.error('[WS] Contract Violation Details:', {
                         error: result.error.format(),
-                        rawData: rawData
+                        rawData: JSON.stringify(rawData, null, 2)
                     })
                     return
                 }
@@ -144,9 +144,9 @@ export class ChatSocket {
                         break
                     case 'debate_question':
                         dc?.onDebateQuestion(
-                            data.data.tensions,
-                            data.data.consensus,
-                            data.data.question,
+                            data.data.core_tensions,
+                            data.data.points_of_consensus,
+                            data.data.question_for_user,
                             data.data.recommendations
                         )
                         break

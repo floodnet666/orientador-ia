@@ -6,15 +6,17 @@ import { chatApi, projectsApi, empiricalApi } from '@/lib/api'
 import { ChatSocket, DebateCallbacks } from '@/lib/ws'
 import CanvasPanel from '@/components/canvas/CanvasPanel'
 import ChatWindow from '@/components/chat/ChatWindow'
+import GenesisModal from '@/components/dashboard/GenesisModal'
 import { useHelp } from '@/store/HelpContext'
 import HelpTooltip from '@/components/shared/HelpTooltip'
 
 export default function ProjectPage() {
     const { id } = useParams<{ id: string }>()
-    const { setMessages, addMessage, appendToLastMessage, setStreaming, updateCanvas, setEmpiricalDocuments, setActiveAlmas } = useProjectStore()
+    const { setMessages, addMessage, appendToLastMessage, setStreaming, updateCanvas, setEmpiricalDocuments, setActiveAlmas, activeAlmas } = useProjectStore()
     const socketRef = useRef<ChatSocket | null>(null)
     const [projectTitle, setProjectTitle] = useState('')
     const [uploading, setUploading] = useState(false)
+    const [showGenesis, setShowGenesis] = useState(false)
     const { isHelpModeActive, toggleHelpMode } = useHelp()
 
     const _dispatchDebate = (type: string, data: Record<string, unknown>) => {
@@ -120,6 +122,30 @@ export default function ProjectPage() {
         }
     }
 
+    async function handleGenesisCreated(alma: { id: string, name: string }) {
+        console.log('[DEBUG] 🧬 Automação Génesis (Opção A): Injetando alma:', alma.name)
+        try {
+            // 1. Obter IDs atuais
+            const currentIds = activeAlmas.map(a => a.id)
+            const newIds = [...new Array(new Set([...currentIds, alma.id]))] // Dedup
+            
+            // 2. Atualizar no Backend
+            const updatedProject = await projectsApi.selectAlmas(id, { alma_ids: [...currentIds, alma.id] })
+            
+            // 3. Atualizar no Store para refletir no Chat e Debate imediatamente
+            if (updatedProject.active_almas) {
+                setActiveAlmas(updatedProject.active_almas)
+                addMessage({ 
+                    role: 'system', 
+                    content: `✨ Nova Alma criada e injetada no Ateliê: **${alma.name}**. Ela agora participa das suas discussões.` 
+                })
+            }
+        } catch (e) {
+            console.error('Falha na injeção automática de Alma:', e)
+            alert('A Alma foi criada, mas houve um erro ao injetá-la automaticamente no projeto.')
+        }
+    }
+
     const [chatWidth, setChatWidth] = useState(60) // percentage
     const isResizing = useRef(false)
 
@@ -163,13 +189,23 @@ export default function ProjectPage() {
                     </a>
                     <span className="text-white/10">|</span>
                     <h1 className="text-white font-medium truncate tracking-tight flex-1">{projectTitle || 'Carregando projeto...'}</h1>
-                    <button
-                        onClick={toggleHelpMode}
-                        className={`p-1.5 rounded-lg transition-colors text-sm ${isHelpModeActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-white/5'}`}
-                        title="Modo Ajuda"
-                    >
-                        ⁉️ Ajuda
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <HelpTooltip content="Crie uma nova Alma customizada agora e ela será injetada automaticamente neste projeto.">
+                            <button
+                                onClick={() => setShowGenesis(true)}
+                                className="text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/10 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition flex items-center gap-1.5"
+                            >
+                                ✨ Génesis
+                            </button>
+                        </HelpTooltip>
+                        <button
+                            onClick={toggleHelpMode}
+                            className={`p-1.5 rounded-lg transition-colors text-sm ${isHelpModeActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-white/5'}`}
+                            title="Modo Ajuda"
+                        >
+                            ⁉️ Ajuda
+                        </button>
+                    </div>
                 </header>
                 <div className="flex-1 overflow-hidden flex flex-col">
                     <HelpTooltip content="Aqui pode conversar com as suas Almas. O Maestro orquestra quem responde com base na sua dúvida." position="right">
@@ -192,6 +228,12 @@ export default function ProjectPage() {
                     <CanvasPanel projectId={id} />
                 </HelpTooltip>
             </section>
+
+            <GenesisModal 
+                isOpen={showGenesis}
+                onClose={() => setShowGenesis(false)}
+                onCreated={handleGenesisCreated}
+            />
         </main>
     )
 }

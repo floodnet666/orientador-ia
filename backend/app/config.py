@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     OLLAMA_ORCHESTRATOR_MODEL: str = "qwen2.5:7b"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text-v2-moe:latest"
     OLLAMA_EMBED_DIMENSIONS: int = 768
-    OLLAMA_NUM_CTX: int = 8192
+    OLLAMA_NUM_CTX: int = 16384
 
     QDRANT_HOST: str = "qdrant"
     QDRANT_PORT: int = 6333

@@ -40,6 +40,10 @@ export const ErrorEventSchema = BaseEventSchema.extend({
   message: z.string(),
 });
 
+export const StartEventSchema = BaseEventSchema.extend({
+  type: z.literal('start'),
+});
+
 // --- Debate Mode Events ---
 
 export const DebateAlmaSchema = z.object({
@@ -94,10 +98,11 @@ export const DebateTurnEndEventSchema = z.object({
 export const DebateQuestionEventSchema = z.object({
   type: z.literal('debate_question'),
   data: z.object({
-    tensions: z.array(z.string()),
-    consensus: z.array(z.string()),
-    question: z.string(),
+    core_tensions: z.array(z.string()),
+    points_of_consensus: z.array(z.string()),
+    question_for_user: z.string(),
     recommendations: z.array(z.string()).optional(),
+    canvas_updates: z.record(z.string(), z.any()).optional(),
   }),
 });
 
@@ -116,6 +121,7 @@ export const ChatEventSchema = z.discriminatedUnion('type', [
   DebateChunkEventSchema,
   DebateTurnEndEventSchema,
   DebateQuestionEventSchema,
+  StartEventSchema,
   z.object({ type: z.literal('pong') }),
   z.object({ type: z.literal('ping') }),
 ]);

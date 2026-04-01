@@ -5,7 +5,7 @@ import { almasApi } from '@/lib/api'
 interface Props {
     isOpen: boolean
     onClose: () => void
-    onCreated: () => void
+    onCreated: (alma: { id: string, name: string }) => void
 }
 
 export default function GenesisModal({ isOpen, onClose, onCreated }: Props) {
@@ -20,8 +20,8 @@ export default function GenesisModal({ isOpen, onClose, onCreated }: Props) {
         setLoading(true)
         setError(null)
         try {
-            await almasApi.genesis(prompt)
-            onCreated()
+            const res = await almasApi.genesis(prompt)
+            onCreated(res.alma)
             onClose()
             setPrompt('')
         } catch (err: any) {

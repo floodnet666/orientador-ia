@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { projectsApi } from '@/lib/api'
+import GenesisModal from '@/components/dashboard/GenesisModal'
+import HelpTooltip from '@/components/shared/HelpTooltip'
 
 interface AlmaSuggestion {
     id: string
@@ -36,16 +38,18 @@ export default function MatchPage() {
     const [confirming, setConfirming] = useState(false)
     const [error, setError] = useState('')
     const [catalog, setCatalog] = useState<AlmaCatalogCard[]>([])
+    const [showGenesis, setShowGenesis] = useState(false)
+
+    const fetchCatalog = async () => {
+        try {
+            const res = await projectsApi.getAlmas() as AlmaCatalogCard[]
+            setCatalog(res)
+        } catch (e) {
+            console.error('Failed to fetch catalog:', e)
+        }
+    }
 
     useEffect(() => {
-        async function fetchCatalog() {
-            try {
-                const res = await projectsApi.getAlmas() as AlmaCatalogCard[]
-                setCatalog(res)
-            } catch (e) {
-                console.error('Failed to fetch catalog:', e)
-            }
-        }
         fetchCatalog()
     }, [])
 
@@ -96,7 +100,17 @@ export default function MatchPage() {
     return (
         <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 px-4 py-8">
             <div className="max-w-4xl mx-auto">
-                <h1 className="text-3xl font-bold text-white mb-2">Selecionar Almas</h1>
+                <div className="flex items-center justify-between mb-2">
+                    <h1 className="text-3xl font-bold text-white">Selecionar Almas</h1>
+                    <HelpTooltip content="O Génesis permite criar uma Alma personalizada do zero se as sugestões atuais não forem ideais.">
+                        <button
+                            onClick={() => setShowGenesis(true)}
+                            className="text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/10 px-4 py-2 rounded-lg text-sm transition flex items-center gap-2"
+                        >
+                            ✨ Génesis
+                        </button>
+                    </HelpTooltip>
+                </div>
                 <p className="text-slate-400 mb-8">Descreva a sua ideia de investigação e o sistema sugerirá as Almas mais adequadas.</p>
 
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6">
@@ -221,6 +235,15 @@ export default function MatchPage() {
                         </button>
                     </div>
                 )}
+
+                <GenesisModal
+                    isOpen={showGenesis}
+                    onClose={() => setShowGenesis(false)}
+                    onCreated={(alma) => {
+                        console.log('[DEBUG] Nova alma criada via Genesis no Match:', alma.id)
+                        fetchCatalog()
+                    }}
+                />
             </div>
         </main>
     )

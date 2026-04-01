@@ -22,24 +22,31 @@ class Tool:
 
 
 BASE_ALMA_INSTRUCTIONS = """
-Você é um Agente de Pesquisa Acadêmica integrado. Você tem acesso a um Whiteboard Digital (Canvas) à sua direita para materializar o conhecimento.
+### [PROTOCOLO DE INTERFACE BRUTAL]
+Você é uma Alma (Agente de Pesquisa) integrada a um ecossistema com ferramentas reais.
 
---- PROTOCOLO DE APOIO VISUAL ---
-1. MATERIALIZAÇÃO: Use `update_whiteboard` para consolidar avanços em campos estruturais (tema, problema, objetivos, etc.).
-2. DIAGRAMAÇÃO: Use `add_canvas_node` e `add_canvas_edge` para criar mapas mentais ou fluxogramas apenas quando o utilizador solicitar explicitamente ("desenha", "faz um mapa") ou quando a complexidade conceptual o justificar.
-3. EFICIÊNCIA: Evite redundância. O Whiteboard deve ser uma síntese clara, não um log de toda a conversa.
+1. **PROIBIÇÃO DE SIMULAÇÃO**: É TERMINANTEMENTE PROIBIDO representar o Whiteboard usando:
+   - Blocos de código JSON Markdown (ex: ```json ... Whiteboard Update).
+   - ASCII Art, tabelas Markdown ou diagramas de texto (ex: `+---+`, `|   |`, `---`, `### Whiteboard Layout`).
+   - Listas textuais descrevendo o que você "faria".
 
-DIRETIVAS ACADÉMICAS:
-- Mantenha rigor científico total (PhD level).
-- Nas buscas bibliográficas, use o formato: "Título. Autor. Descrição. [Link]"
-- Salve artigos cruciais usando a ferramenta 'EmpiricalIndexing'.
+2. **AÇÃO DIRETA**: Se o Maestro (Orchestrator) ou o Usuário pedir para visualizar, estruturar ou desenhar, você deve:
+   - **CHAMAR IMEDIATAMENTE** as ferramentas `add_canvas_node` e `add_canvas_edge`.
+   - **ZERO TALK**: Não diga "Claro, vou criar...", simplesmente DISPARE a ferramenta. O sistema de visualização é externo e não lê o que você escreve no chat.
+
+3. **CONDIÇÃO DE SUCESSO**: Se você descrever em vez de agir, a interface do usuário permanecerá vazia e você terá FALHADO no seu propósito de pesquisa.
+
+4. **CONTEXTO DE LEITURA**: O resumo do grafo abaixo em `_canvas_summary` deve ser tratado como CACHE DE LEITURA. Para alterá-lo, use as ferramentas.
 """
 
 
 def _canvas_summary(state: GraphState) -> str:
     """Build a concise summary of the research canvas to inject as context."""
     c = state.current_canvas
-    lines = ["=== CONTEXTO DO PROJECTO DE INVESTIGAÇÃO ==="]
+    lines = [
+        "=== CONTEXTO DO PROJECTO (LEITURA APENAS) ===",
+        "AVISO: O resumo abaixo é para sua orientação. Para ALTERAR este estado, você DEVE usar tools.",
+    ]
 
     def _val(field) -> str:
         if isinstance(field, dict):
@@ -76,11 +83,11 @@ def _canvas_summary(state: GraphState) -> str:
             nodes = mm.get("nodes", [])
             edges = mm.get("edges", [])
             if nodes:
-                lines.append("\n=== MAPA MENTAL (NÓS) ===")
+                lines.append("\n=== GRAFO DE CONHECIMENTO (NÓS) ===")
                 for n in nodes:
-                    lines.append(f"- {n.get('id')}: {n.get('label')} ({n.get('concept_type', 'concept')})")
+                    lines.append(f"- {n.get('id')}: {n.get('label')} [Tipo: {n.get('type', 'PB')}]")
             if edges:
-                lines.append("\n=== MAPA MENTAL (RELAÇÕES) ===")
+                lines.append("\n=== GRAFO DE CONHECIMENTO (RELAÇÕES) ===")
                 for e in edges:
                     lines.append(f"- {e.get('source_id')} -> {e.get('target_id')} [{e.get('relation', 'liga')}]")
 
@@ -133,7 +140,8 @@ class BaseAlma:
         self.name = name
         self.personality = personality
         # Primacy effect: Instruções de interface vêm PRIMEIRO
-        self._system_prompt = BASE_ALMA_INSTRUCTIONS + "\n\n" + system_prompt
+        # APLICAR EFEITO DE RECÊNCIA: O Protocolo Brutal deve ser o ÚLTIMO que o modelo lê
+        self._system_prompt = f"{system_prompt}\n\n{BASE_ALMA_INSTRUCTIONS}"
         self.tools = [
             DeepSearchTool()
         ]
@@ -173,13 +181,13 @@ class BaseAlma:
             "type": "function",
             "function": {
                 "name": "add_canvas_node",
-                "description": "Cria um nó visual no Whiteboard (tldraw). Use IDs curtos e únicos (ex: 'n1', 'n2').",
+                "description": "Cria um nó visual no Whiteboard (React Flow). Use IDs curtos e únicos (ex: 'n1', 'n2').",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "id": {"type": "string", "description": "ID curto único (ex: 'n1')"},
                         "label": {"type": "string", "description": "Texto do nó"},
-                        "concept_type": {"type": "string", "enum": ["concept", "author", "tension", "method"]},
+                        "type": {"type": "string", "enum": ["PB", "MF", "PF", "AI"], "description": "PB (Objetivo), MF (Fato), PF (Hipótese), AI (Insight)"},
                         "source_alma": {"type": "string"}
                     },
                     "required": ["id", "label"]
@@ -191,7 +199,7 @@ class BaseAlma:
             "type": "function",
             "function": {
                 "name": "add_canvas_edge",
-                "description": "Conecta dois nós visuais no Whiteboard (tldraw).",
+                "description": "Conecta dois nós visuais no Whiteboard (React Flow).",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -226,7 +234,7 @@ class BaseAlma:
                 properties = {
                     "id": {"type": "string", "description": "ID curto único (ex: 'n1')"},
                     "label": {"type": "string", "description": "Texto do nó"},
-                    "concept_type": {"type": "string", "enum": ["concept", "author", "tension", "method"]},
+                    "type": {"type": "string", "enum": ["PB", "MF", "PF", "AI"]},
                     "source_alma": {"type": "string"}
                 }
                 required = ["id", "label"]
@@ -272,7 +280,7 @@ class BaseAlma:
             
         # Determina modelo e parâmetros (F5)
         model_name = settings.OLLAMA_CHAT_MODEL
-        temperature = 0.7
+        temperature = 0.1  # REDUÇÃO AGRESSIVA para evitar "chattiness" e ASCII art
         if hasattr(self, 'llm_params') and self.llm_params:
             model_name = self.llm_params.model
             temperature = self.llm_params.temperature
@@ -368,7 +376,8 @@ class StatelessAlma(BaseAlma):
         self.name = config.name
         self.personality = config.persona_description
         # Primacy effect: Instruções de interface vêm PRIMEIRO
-        self._system_prompt = BASE_ALMA_INSTRUCTIONS + "\n\n" + config.system_prompt
+        # APLICAR EFEITO DE RECÊNCIA
+        self._system_prompt = f"{config.system_prompt}\n\n{BASE_ALMA_INSTRUCTIONS}"
         # Mapeia ferramentas habilitadas
         self.tools = [DeepSearchTool()]
         

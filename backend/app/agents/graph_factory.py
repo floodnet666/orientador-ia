@@ -13,6 +13,12 @@ from app.agents.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
 from app.agents.almas.base_alma import BASE_ALMA_INSTRUCTIONS
 from app.lib.graph.canvas_serializer import serialize_canvas_for_prompt
 from app.lib.graph.subgraphs.debate_subgraph import debate_subgraph, DebateState
+from app.agents.debate.panel_selector import select_panel
+from app.services.genesis_service import genesis_service
+from app.agents.almas.base_alma import AlmaModel
+from app.models.sql_models import EcosystemResource, ResourceTypeEnum, AlmaTypeEnum, ScopeEnum
+
+
 
 log = logging.getLogger("app.agents.graph")
 
@@ -78,15 +84,83 @@ async def debate_node(state: BackendState) -> Dict[str, Any]:
             original_message = msg.content
             break
 
+    # 1. Resolver Almas e Painel
+    from app.services.ollama_client import ollama_client # Fallback fetch
+    from app.models.sql_models import Alma
+    from sqlalchemy import select
+    from app.db.session import AsyncSessionLocal
+    
+    async with AsyncSessionLocal() as db:
+        # Busca todas as almas aprovadas para o seletor
+        res = await db.execute(select(Alma).where(Alma.is_approved == True))
+        alma_list = res.scalars().all()
+        
+        from app.agents.debate.context_analyzer import DebateContext
+        context = DebateContext(
+            canvas=state.get("current_canvas", {}), # Simplificado para o seletor
+            user_message=original_message
+        )
+        
+        panel = await select_panel(
+            context=context,
+            alma_list=alma_list,
+            active_theoretical_alma=state.get("active_theoretical_alma"),
+            active_methodological_alma=state.get("active_methodological_alma"),
+            active_soul_ids=state.get("active_soul_ids", [])
+        )
+
+    # 2. [XP/RIGOR] Verificação de Aderência e Génesis de Emergência
+    roles_to_check = ["PRIMARIA", "COMPLEMENTAR", "ANTAGONISTA", "METODOLOGICA"]
+    for r_key in roles_to_check:
+        role_data = getattr(panel, r_key)
+        if role_data.score < 0.8:
+            log.warning(f"[DEBATE:RIGOR] Escala de aderência baixa para {r_key} ({role_data.score:.2f}). Invocando Génesis...")
+            
+            description = f"Alma especializada para o papel de {r_key} no debate sobre '{context.canvas.get('tema', {}).get('content', '')}'. Problema: '{context.canvas.get('problema', {}).get('content', '')}'."
+            try:
+                gen_data = await genesis_service.generate_alma(description)
+                
+                # [XP/PERSISTENCE] Salvar a alma no catálogo permanente
+                new_alma = EcosystemResource(
+                    resource_type=ResourceTypeEnum.ALMA,
+                    name=gen_data["name"],
+                    description=gen_data.get("description", description),
+                    system_prompt=gen_data["system_prompt"],
+                    alma_type=AlmaTypeEnum.THEORETICAL if r_key != "METODOLOGICA" else AlmaTypeEnum.METHODOLOGICAL,
+                    scope=ScopeEnum.GLOBAL,
+                    personality_descriptor=f"Geração de Emergência: Debate sobre {context.canvas.get('tema', {}).get('content', '')}",
+                    is_approved=True
+                )
+                
+                db.add(new_alma)
+                await db.commit()
+                await db.refresh(new_alma)
+                
+                # Atualiza o panel com a alma ressuscitada e PERSISTIDA
+                role_data.alma_name = new_alma.name
+                role_data.alma_id = str(new_alma.id)
+                role_data.selection_rationale = f"Gênesis de Emergência (Aderência original era baixa: {role_data.score:.2f})"
+                role_data.score = 1.0 
+                role_data.custom_instructions = new_alma.system_prompt
+                
+                log.info(f"[DEBATE:PERSISTENCE] Nova Alma '{new_alma.name}' salva no catálogo (ID: {new_alma.id})")
+                
+            except Exception as e:
+                log.error(f"Erro no Génesis de Emergência/Persistência para {r_key}: {e}")
+                await db.rollback()
+
+
     debate_input = DebateState(
         original_user_message=original_message,
         canvas_summary=serialize_canvas_for_prompt(state.get("canvas_nodes", [])),
         rag_context=state.get("rag_context"),
         turns=[],
         current_turn_index=0,
+        panel=panel, # Injeção do painel dinâmico e "auditado"
         synthesis=None,
         is_complete=False,
     )
+
 
     result = await debate_subgraph.ainvoke(debate_input)
 

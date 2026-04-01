@@ -3,6 +3,7 @@ import { useRef, useEffect, useState } from 'react'
 import { useProjectStore } from '@/store/project'
 import DebatePanel from './DebatePanel'
 import { renderTextWithMath } from '@/components/scientific/MathRenderer'
+import { getAlmaMetadata } from '@/lib/colors'
 
 
 interface Props {
@@ -11,13 +12,13 @@ interface Props {
     isUploading?: boolean
 }
 
-type DebateRole = 'primaria' | 'complementar' | 'antagonista' | 'metodologica' | 'synthesis'
+const CHAT_ROLE_STYLES = {
+    user: 'bg-indigo-600/20 border-indigo-500/30 ml-auto mr-0 max-w-[85%]',
+    alma: 'bg-white/5 border-white/10 mr-auto ml-0 max-w-[85%]',
+    system: 'bg-yellow-900/10 border-yellow-500/20 mx-auto text-center text-xs max-w-[90%]',
+}
 
-// HELPER: Defensive Role Style Lookup
-const getRoleData = (role: string, map: Record<DebateRole, string>, fallback: string): string => {
-    const key = role?.toLowerCase() as DebateRole;
-    return map[key] || fallback;
-};
+type DebateRole = 'primaria' | 'complementar' | 'antagonista' | 'metodologica' | 'synthesis'
 
 interface DebateTurn {
     role: DebateRole
@@ -40,23 +41,7 @@ interface ActivePanel {
     synthesis?: { name: string }
 }
 
-const ROLE_STYLES: Record<DebateRole, string> = {
-    primaria: 'border-violet-500/40 bg-violet-500/10',
-    complementar: 'border-cyan-500/40 bg-cyan-500/10',
-    antagonista: 'border-rose-500/40 bg-rose-500/10',
-    metodologica: 'border-amber-500/40 bg-amber-500/10',
-    synthesis: 'border-slate-500/40 bg-slate-500/10',
-}
-
-const ROLE_NAME_STYLES: Record<DebateRole, string> = {
-    primaria: 'text-violet-400',
-    complementar: 'text-cyan-400',
-    antagonista: 'text-rose-400',
-    metodologica: 'text-amber-400',
-    synthesis: 'text-slate-400',
-}
-
-const ROLE_LABELS: Record<DebateRole, string> = {
+const ROLE_LABELS: Record<string, string> = {
     primaria: 'Primária',
     complementar: 'Complementar',
     antagonista: 'Antagonista',
@@ -64,22 +49,8 @@ const ROLE_LABELS: Record<DebateRole, string> = {
     synthesis: 'Síntese',
 }
 
-const CHAT_ROLE_STYLES = {
-    user: 'bg-indigo-600/20 border-indigo-500/30 ml-auto mr-0 max-w-[85%]',
-    alma: 'bg-white/5 border-white/10 mr-auto ml-0 max-w-[85%]',
-    system: 'bg-yellow-900/10 border-yellow-500/20 mx-auto text-center text-xs max-w-[90%]',
-}
-
-const DEBATE_ALIGNMENT: Record<DebateRole, string> = {
-    primaria: 'mr-auto ml-0',
-    complementar: 'ml-auto mr-0',
-    antagonista: 'mr-auto ml-0 border-rose-500/30',
-    metodologica: 'mx-auto border-amber-500/30',
-    synthesis: 'mx-auto border-slate-500/30',
-}
-
 export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
-    const { chatMessages, isStreaming } = useProjectStore()
+    const { chatMessages, isStreaming, activeAlmas } = useProjectStore()
     const [input, setInput] = useState('')
     const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -223,18 +194,26 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
 
                 {/* Standard messages */}
                 {chatMessages
-                  .filter(msg => msg.role !== 'system' || msg.content.length < 500) // Basic filter for heavy system/tool logs
-                  .map((msg, i) => (
-                    <div
-                        key={i}
-                        className={`rounded-xl border px-4 py-3 transition-opacity select-text ${CHAT_ROLE_STYLES[msg.role as keyof typeof CHAT_ROLE_STYLES] || CHAT_ROLE_STYLES.system}`}
-                    >
-                        {msg.alma_name && (
-                            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-tighter mb-1">{msg.alma_name}</p>
-                        )}
-                        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(msg.content)}</p>
-                    </div>
-                ))}
+                  .filter(msg => msg.role !== 'system' || msg.content.length < 500)
+                  .map((msg, i) => {
+                    const metadata = getAlmaMetadata(msg.alma_name, activeAlmas);
+                    return (
+                        <div
+                            key={i}
+                            className={`rounded-xl border px-4 py-3 transition-opacity select-text ${CHAT_ROLE_STYLES[msg.role as keyof typeof CHAT_ROLE_STYLES] || CHAT_ROLE_STYLES.system} ${metadata?.border || ''} ${metadata?.bg || ''}`}
+                        >
+                            {msg.alma_name && (
+                                <div className="flex items-center gap-2 mb-1.5">
+                                    <span className="text-sm">{metadata?.emoji || '👤'}</span>
+                                    <p className={`text-[11px] font-black uppercase tracking-tight ${metadata?.text || 'text-indigo-400'}`}>
+                                        {msg.alma_name}
+                                    </p>
+                                </div>
+                            )}
+                            <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(msg.content)}</p>
+                        </div>
+                    );
+                })}
 
                 {/* Standard streaming indicator */}
                 {isStreaming && !isDebating && (
@@ -247,29 +226,25 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
 
                 {/* Debate turns - WhatsApp Style */}
                 {debateTurns.map((turn, i) => {
-                    // Safe style lookups
-                    const roleStyle = getRoleData(turn.role, ROLE_NAME_STYLES, 'text-slate-400')
-                    const cardStyle = getRoleData(turn.role, ROLE_STYLES, 'border-slate-500/40 bg-slate-500/10')
-                    const alignStyle = getRoleData(turn.role, DEBATE_ALIGNMENT, 'mr-auto ml-0')
-                    const labelStr = getRoleData(turn.role, ROLE_LABELS, 'Alma')
+                    const metadata = getAlmaMetadata(turn.almaName, activeAlmas);
+                    const labelStr = ROLE_LABELS[turn.role] || 'Alma';
+                    const isRight = turn.role === 'complementar'; // Only complementar on right
 
                     return (
                         <div
                             key={`debate-${i}`}
-                            className={`rounded-2xl border px-4 py-3 transition-all max-w-[85%] shadow-lg select-text ${cardStyle} ${alignStyle}`}
+                            className={`rounded-2xl border px-4 py-3 transition-all max-w-[85%] shadow-lg select-text ${metadata?.bg || 'bg-slate-500/10'} ${metadata?.border || 'border-white/10'} ${isRight ? 'ml-auto mr-0' : 'mr-auto ml-0'}`}
                         >
                             <div className="flex items-center gap-2 mb-1.5 ">
-                                <div className={`w-1.5 h-1.5 rounded-full ${roleStyle.replace('text-', 'bg-')}`} />
-                                <p className={`text-[10px] font-black uppercase tracking-wider ${roleStyle} filter brightness-110`}>
+                                <span className="text-sm">{metadata?.emoji || '👤'}</span>
+                                <p className={`text-[11px] font-black uppercase tracking-tight ${metadata?.text || 'text-white'} filter brightness-110`}>
                                     {turn.almaName}
                                 </p>
-                                <span className={`text-[9px] px-1 py-0.5 rounded-full border ${roleStyle} border-current opacity-40 font-bold`}>
+                                <span className={`text-[8px] px-1.5 py-0.5 rounded flex items-center border ${metadata?.text || 'text-slate-400'} border-current opacity-60 font-bold uppercase`}>
                                     {labelStr}
                                 </span>
                                 {turn.isStreaming && (
-                                    <span className="ml-auto flex gap-0.5 items-center">
-                                        <span className="w-1 h-1 bg-white/60 rounded-full animate-ping" />
-                                    </span>
+                                    <span className="ml-auto w-1 h-1 bg-white/60 rounded-full animate-ping" />
                                 )}
                             </div>
                             <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(turn.content)}</p>
@@ -287,7 +262,7 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                             <div className="mb-3">
                                 <p className="text-xs text-rose-400 font-semibold mb-1">⚡ Tensões em aberto</p>
                                 <ul className="space-y-1">
-                                    {debateQuestion.tensions.map((t, i) => (
+                                    {debateQuestion.tensions.map((t: string, i: number) => (
                                         <li key={i} className="text-xs text-slate-300 pl-2 border-l border-rose-500/40">{t}</li>
                                     ))}
                                 </ul>
@@ -297,7 +272,7 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                             <div className="mb-3">
                                 <p className="text-xs text-emerald-400 font-semibold mb-1">✓ Pontos de consenso</p>
                                 <ul className="space-y-1">
-                                    {debateQuestion.consensus.map((c, i) => (
+                                    {debateQuestion.consensus.map((c: string, i: number) => (
                                         <li key={i} className="text-xs text-slate-300 pl-2 border-l border-emerald-500/40">{c}</li>
                                     ))}
                                 </ul>

@@ -50,11 +50,14 @@ O `DeepSearchTool` realiza buscas concorrentes em múltiplas fontes acadêmicas:
 
 ---
 
-## 5. Debate Runner (Ateliê Socrático)
-O sistema de debate foi refatorado para um modelo estritamente sequencial e reativo:
+### 5. Debate Runner (Ateliê Socrático)
+O sistema de debate opera em um modelo estritamente sequencial e reativo:
 - **Fluxo**: Proposição (Primária) -> Complementação (Complementar) -> Antagonismo (Antagonista).
 - **Streaming**: Implementado `Agent.stream` no `adk.py` para visualização granular no frontend.
-- **Contexto**: Injeção automática das transcrições dos turnos anteriores no prompt do participante atual.
+- **Identidade Dinâmica (v9.1.0)**: O sistema resolve nomes e cores em tempo real via metadados do `panel`. Placeholder genéricos ("Alma Primária") foram eliminados em favor de nomes reais (ex: Foucault).
+- **Gênesis de Emergência (Rigor 80%)**: Em `graph_factory.py`, se a aderência semântica de uma Alma for inferior a 0.8, o sistema dispara o `GenesisService` para criar um especialista *ad hoc* perfeitamente alinhado ao tema.
+- **Persistência de Especialistas**: Almas geradas via emergência são persistidas em `ecosystem_resources` (`is_approved=True`), permitindo que o catálogo teórico do sistema se expanda organicamente com o uso.
+
 
 ---
 
@@ -86,5 +89,7 @@ Realizada em 2026-03-11 para validar a robustez do novo `DebateRunner`:
 - 25/03/2026: Correção Crítica de Whiteboard Drawing (NTC). Consolidado `update_whiteboard` como ferramenta nativa. Corrigida falha no streaming de `BaseAlma.stream_response` que interceptava chunks de ferramentas sem os retransmitir. Implementada injeção de resposta de ferramenta no contexto local da Alma para garantir continuidade do diálogo após o desenho no quadro. Alinhado script de teste `test_llm_tool_calling.py` com os nomes de produção.
 
 - 26/03/2026: Migração do `tldraw` para `richText` (API v4.5.3). Corrigido erro de validação ao criar nós e setas no canvas. Implementada utilidade `toRichText` no frontend para conversão automática de strings. Alinhadas propriedades dos shapes para usar `textAlign` em vez de `align`.
+- 01/04/2026 (v9.1.0): Universalização da Identidade e Persistência do Gênesis. Refatoração do `debate_node` para suporte a **Aderência Crítica (< 80%)** com fallback para Gênesis automático. Implementada persistência de Almas de emergência no PostgreSQL. Sincronização de metadados entre `chat.py` e `alma_registry.py` para eliminação de nomes genéricos no frontend. Adicionada injeção de `custom_instructions` (léxico e personalidade) nos prompts das Almas do debate.
 
 *Documentação Técnica - Protocolo DocumentationSphinx*
+

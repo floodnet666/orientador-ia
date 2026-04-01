@@ -4,6 +4,7 @@ import { useProjectStore, CanvasState } from '@/store/project'
 import { projectsApi } from '@/lib/api'
 import EvidenceManager from '@/components/project/EvidenceManager'
 import KnowledgeGraph from '@/components/whiteboard/KnowledgeGraph'
+import { getAlmaMetadata } from '@/lib/colors'
 
 
 const FIELD_LABELS: Record<string, string> = {
@@ -214,17 +215,17 @@ export default function CanvasPanel({ projectId }: Props) {
                                     <p className="text-xs text-slate-600 italic">Nenhuma alma selecionada no projeto.</p>
                                 ) : (
                                     activeAlmas.map((alma, idx) => {
-                                        const emojis = ['🔴', '🟠', '🟡', '🟢', '🔵', '🟣'];
-                                        const emoji = emojis[idx % emojis.length];
+                                        const metadata = getAlmaMetadata(alma.id, activeAlmas)
+                                        const emoji = metadata?.emoji || '👤'
                                         const isTheoretical = String(alma.alma_type).toLowerCase().includes('theor');
                                         
                                         return (
                                             <div key={alma.id} className="flex items-center gap-2.5 group/alma">
-                                                <span className="shrink-0 text-base filter grayscale-[0.2] group-hover/alma:grayscale-0 transition-all">
+                                                <span className={`shrink-0 text-base filter grayscale-[0.2] group-hover/alma:grayscale-0 transition-all ${metadata?.text || 'text-slate-400'}`}>
                                                     {emoji}
                                                 </span>
                                                 <div className="flex flex-col min-w-0">
-                                                    <span className="text-white text-[13px] font-medium truncate group-hover/alma:text-indigo-300 transition-colors">
+                                                    <span className={`text-white text-[13px] font-medium truncate group-hover/alma:text-indigo-300 transition-colors`}>
                                                         {alma.name}
                                                     </span>
                                                     <span className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">

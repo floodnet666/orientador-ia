@@ -144,7 +144,8 @@ export default function DashboardPage() {
                 <GenesisModal
                     isOpen={showGenesis}
                     onClose={() => setShowGenesis(false)}
-                    onCreated={() => {
+                    onCreated={(alma) => {
+                        console.log('[DEBUG] Nova alma criada via Genesis:', alma.name)
                         // In a real app we might toast success here
                     }}
                 />
