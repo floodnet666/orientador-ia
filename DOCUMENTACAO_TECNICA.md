@@ -90,6 +90,8 @@ Realizada em 2026-03-11 para validar a robustez do novo `DebateRunner`:
 
 - 26/03/2026: Migração do `tldraw` para `richText` (API v4.5.3). Corrigido erro de validação ao criar nós e setas no canvas. Implementada utilidade `toRichText` no frontend para conversão automática de strings. Alinhadas propriedades dos shapes para usar `textAlign` em vez de `align`.
 - 01/04/2026 (v9.1.0): Universalização da Identidade e Persistência do Gênesis. Refatoração do `debate_node` para suporte a **Aderência Crítica (< 80%)** com fallback para Gênesis automático. Implementada persistência de Almas de emergência no PostgreSQL. Sincronização de metadados entre `chat.py` e `alma_registry.py` para eliminação de nomes genéricos no frontend. Adicionada injeção de `custom_instructions` (léxico e personalidade) nos prompts das Almas do debate.
+- 02/04/2026 (v9.1.1): Hotfix de tipos. Adicionada importação de `Optional` e `Any` em `alma_registry.py` para garantir suporte a `get_debate_manifest` em ambientes de execução estrita.
+
 
 *Documentação Técnica - Protocolo DocumentationSphinx*
 

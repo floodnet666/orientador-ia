@@ -14,6 +14,8 @@ Implementação do protocolo de rigor acadêmico para o Modo Debate, eliminando 
 ### CORRIGIDO:
 - **WebSocket Identity Race**: Resolvido problema em que o frontend exibia nomes genéricos no primeiro turno por falta de metadados no manifesto inicial.
 - **UUID Persistence Error**: Garantida a conversão de `UUID` para `string` nos payloads do WebSocket para compatibilidade com Zod no frontend.
+- **Hotfix (v9.1.1)**: Corrigido `NameError: Optional is not defined` em `alma_registry.py` através da importação correta dos tipos `Optional` e `Any` do módulo `typing`.
+
 
 ---
 

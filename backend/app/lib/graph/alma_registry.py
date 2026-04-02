@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional, Any
+
 
 AlmaRole = Literal["primaria", "complementar", "antagonista", "metodologica", "synthesis"]
 
