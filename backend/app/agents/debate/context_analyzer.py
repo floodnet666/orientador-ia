@@ -5,7 +5,8 @@ Uses qwen3.5:0.8b for fast JSON classification.
 import json
 import logging
 from json_repair import repair_json
-from typing import Literal, Optional
+from typing import Literal, Optional, Any
+
 
 from pydantic import BaseModel
 

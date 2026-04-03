@@ -2,6 +2,7 @@ import logging
 import asyncio
 import httpx
 import arxiv
+import re
 from typing import Dict, Any, List
 
 log = logging.getLogger("tools.deep_search")
@@ -21,7 +22,7 @@ class DeepSearchTool:
     )
     
     # Restrição de YAGNI: Limitar resultados por fonte para evitar context-bloat no LLM
-    MAX_RESULTS_PER_SOURCE = 2
+    MAX_RESULTS_PER_SOURCE = 5
     TIMEOUT_SECONDS = 15.0
 
     async def _search_arxiv(self, query: str) -> List[Dict[str, Any]]:
@@ -38,21 +39,41 @@ class DeepSearchTool:
                     max_results=self.MAX_RESULTS_PER_SOURCE,
                     sort_by=arxiv.SortCriterion.Relevance
                 )
-                return list(client.results(search))
+                results = list(client.results(search))
+                papers = []
+                for r in results:
+                    summary = r.summary.replace("\n", " ")
+                    links = re.findall(r'http[s]?://[^\s<>"]+|(?<=ref=")[^"]+', summary)
+                    
+                    pdf_url = None
+                    landing_url = r.entry_id
+                    
+                    for lnk in links:
+                        if "arxiv.org/pdf/" in lnk:
+                            pdf_url = lnk
+                        elif "doi.org" in lnk or "arxiv.org/abs/" in lnk:
+                            landing_url = lnk
+                    
+                    if not pdf_url and landing_url and "arxiv.org/abs/" in landing_url:
+                        paper_id = landing_url.split("/")[-1]
+                        pdf_url = f"https://arxiv.org/pdf/{paper_id}"
+                    elif not pdf_url and landing_url and "/abs/" in landing_url:
+                        paper_id = landing_url.split("/")[-1]
+                        pdf_url = f"https://arxiv.org/pdf/{paper_id}"
+                        
+                    papers.append({
+                        "source": "ArXiv [v10.1]",
+                        "title": r.title,
+                        "authors": [a.name for a in r.authors],
+                        "published": str(r.published.date()) if r.published else "Unknown",
+                        "abstract": summary,
+                        "pdf_url": pdf_url,
+                        "landing_url": landing_url,
+                        "url": landing_url
+                    })
+                return papers
                 
-            results = await loop.run_in_executor(None, do_search)
-            
-            return [
-                {
-                    "source": "ArXiv",
-                    "title": r.title,
-                    "authors": [a.name for a in r.authors],
-                    "published": str(r.published.date()) if r.published else "Unknown",
-                    "abstract": r.summary.replace("\n", " "),
-                    "url": r.pdf_url or r.entry_id
-                }
-                for r in results
-            ]
+            return await loop.run_in_executor(None, do_search)
         except Exception as e:
             log.error(f"[ArXiv] Search failed: {str(e)}")
             return []
@@ -86,19 +107,38 @@ class DeepSearchTool:
                 for w in data.get("results", []):
                     if scielo_only:
                         # Double check if scielo is in one of the host venues
-                        locations = w.get("locations", [])
-                        is_scielo = any("scielo" in str(loc.get("source", {}).get("display_name", "")).lower() for loc in locations)
+                        locations = w.get("locations") or []
+                        is_scielo = any(
+                            loc and "scielo" in str(loc.get("source", {}).get("display_name", "")).lower() 
+                            for loc in locations
+                        )
                         if not is_scielo and query.lower() not in str(w.get("title", "")).lower():
                             continue
 
-                    authors = [a.get("author", {}).get("display_name", "") for a in w.get("authorships", [])]
+                    # Extração de Links Reais (PDF vs Landing)
+                    oa_data = w.get("best_oa_location") or {}
+                    pdf_url = oa_data.get("pdf_url")
+                    landing_url = w.get("doi") or oa_data.get("landing_page_url") or w.get("id")
+
+                    # Validação heurística de PDF: se não terminar em .pdf ou não conter /pdf/ no path, 
+                    # e for o mesmo link da landing, provavelmente não temos o binário direto.
+                    if pdf_url and pdf_url == landing_url:
+                        if not (pdf_url.lower().endswith(".pdf") or "/pdf/" in pdf_url.lower() or "/view/" in pdf_url.lower()):
+                            pdf_url = None
+
                     results.append({
                         "source": source_label,
                         "title": w.get("title", "No Title"),
-                        "authors": [a for a in authors if a],
+                        "authors": [
+                            a.get("author", {}).get("display_name", "") 
+                            for a in (w.get("authorships") or []) 
+                            if a and isinstance(a, dict) and a.get("author")
+                        ],
                         "published": w.get("publication_date", "Unknown"),
-                        "abstract": self._reconstruct_abstract(w.get("abstract_inverted_index", {})),
-                        "url": w.get("doi") or w.get("id")
+                        "abstract": self._reconstruct_abstract(w.get("abstract_inverted_index") or {}),
+                        "pdf_url": pdf_url,
+                        "landing_url": landing_url,
+                        "url": landing_url # Legacy compatibility
                     })
                 return results
         except Exception as e:
@@ -107,18 +147,27 @@ class DeepSearchTool:
 
     def _reconstruct_abstract(self, inverted_index: Dict[str, List[int]]) -> str:
         """OpenAlex retorna um índice invertido. Precisamos recriar o abstract."""
-        if not inverted_index:
+        if not inverted_index or not isinstance(inverted_index, dict):
             return "No abstract available."
         
-        # Achar o tamanho total do abstract
-        max_idx = max([max(positions) for positions in inverted_index.values() if positions])
-        words = [""] * (max_idx + 1)
-        
-        for word, positions in inverted_index.items():
-            for pos in positions:
-                words[pos] = word
-        
-        return " ".join(words).strip()
+        try:
+            # Achar o tamanho total do abstract
+            all_positions = [pos for positions in inverted_index.values() for pos in (positions or [])]
+            if not all_positions:
+                return "No abstract available."
+                
+            max_idx = max(all_positions)
+            words = [""] * (max_idx + 1)
+            
+            for word, positions in inverted_index.items():
+                for pos in (positions or []):
+                    if pos <= max_idx:
+                        words[pos] = word
+            
+            return " ".join(words).strip()
+        except (ValueError, TypeError) as e:
+            log.warning(f"Failed to reconstruct abstract: {str(e)}")
+            return "Abstract reconstruction failed."
 
     async def _search_scielo(self, query: str) -> List[Dict[str, Any]]:
         """Pesquisa no SciELO (Literatura Ouro Latino-Americana/Ibéria) via OpenAlex."""

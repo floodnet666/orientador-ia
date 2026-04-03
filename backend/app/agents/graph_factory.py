@@ -15,7 +15,7 @@ from app.lib.graph.canvas_serializer import serialize_canvas_for_prompt
 from app.lib.graph.subgraphs.debate_subgraph import debate_subgraph, DebateState
 from app.agents.debate.panel_selector import select_panel
 from app.services.genesis_service import genesis_service
-from app.agents.almas.base_alma import AlmaModel
+# from app.agents.almas.base_alma import AlmaModel - Removido (Inexistente)
 from app.models.sql_models import EcosystemResource, ResourceTypeEnum, AlmaTypeEnum, ScopeEnum
 
 
@@ -86,9 +86,9 @@ async def debate_node(state: BackendState) -> Dict[str, Any]:
 
     # 1. Resolver Almas e Painel
     from app.services.ollama_client import ollama_client # Fallback fetch
-    from app.models.sql_models import Alma
+    from app.models.sql_models import EcosystemResource as Alma
     from sqlalchemy import select
-    from app.db.session import AsyncSessionLocal
+    from app.database import AsyncSessionLocal
     
     async with AsyncSessionLocal() as db:
         # Busca todas as almas aprovadas para o seletor

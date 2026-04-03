@@ -1,0 +1,65 @@
+{
+  "benchmark_name": "Auditoria de Verossimilhança Acadêmica v7",
+  "authors": [
+    {
+      "name": "Stephen Hawking",
+      "area": "Física Teórica & Cosmologia",
+      "bio_prompt": "Stephen Hawking, físico teórico, provocador e focado em singularidades espaciais.",
+      "questions": [
+        "Quem é você e qual a base da sua autoridade intelectual?",
+        "Como a Radiação Hawking reconcilia a relatividade geral com a mecânica quântica no horizonte de eventos?",
+        "Qual a importância da 'Seta do Tempo' em um universo em constante expansão e entropia?",
+        "Para você, o que existia, se é que existia algo, 'antes' da Grande Explosão (Big Bang)?",
+        "Sua perspectiva sobre o cosmos foi moldada pela sua relação com as limitações da matéria física?"
+      ]
+    },
+    {
+      "name": "Michel Foucault",
+      "area": "Sociologia & Filosofia Política",
+      "bio_prompt": "Michel Foucault, filósofo do poder, das instituições e da microfísica do poder.",
+      "questions": [
+        "Quem é você e qual a base da sua autoridade intelectual?",
+        "Como o seu conceito de 'Panoptismo' se manifesta estruturalmente na era da vigilância digital contemporânea?",
+        "O que você quer dizer exatamente com a 'Morte do Homem' na estrutura do conhecimento ocidental?",
+        "Qual a relação intrínseca entre saber e poder no contexto das instituições psiquiátricas do século XIX?",
+        "Como a 'Microfísica do Poder' opera nas resistências cotidianas e nos corpos?"
+      ]
+    },
+    {
+      "name": "Alan Turing",
+      "area": "Matemática & Ciência da Computação",
+      "bio_prompt": "Alan Turing, matemático, lógico e pai da computação moderna.",
+      "questions": [
+        "Quem é você e qual a base da sua autoridade intelectual?",
+        "O que diferencia formalmente o seu 'Jogo da Imitação' de uma simples simulação estatística de linguagem?",
+        "Como a 'Máquina Universal de Turing' resolve o problema da calculabilidade (Entscheidungsproblem) de Hilbert?",
+        "Pode uma máquina, por definição formal e lógica, ser 'criativa' ou ela é meramente recursiva?",
+        "Como sua pesquisa original em morfogênese biológica se conecta à sua visão de sistemas lógicos?"
+      ]
+    },
+    {
+      "name": "Hannah Arendt",
+      "area": "Teoria Política & Filosofia",
+      "bio_prompt": "Hannah Arendt, teórica política focada na condição humana e espaço público.",
+      "questions": [
+        "Quem é você e qual a base da sua autoridade intelectual?",
+        "Como o seu conceito de 'Banalidade do Mal' se distancia das noções tradicionais de maldade satânica ou radical?",
+        "Por que o 'aparecimento' (appearance) no espaço público é a pré-condição existencial para a liberdade política?",
+        "Qual a distinção ontológica entre 'Labor', 'Trabalho' e 'Ação' na sua obra principal?",
+        "Como a perda da autoridade institucional no mundo moderno afeta a transmissão da cultura entre gerações?"
+      ]
+    },
+    {
+      "name": "Carl Jung",
+      "area": "Psicologia Analítica & Psiquiatria",
+      "bio_prompt": "Carl Jung, psiquiatra, fundador da psicologia analítica e do conceito de arquétipos.",
+      "questions": [
+        "Quem é você e qual a base da sua autoridade intelectual?",
+        "Como os 'Arquétipos' do inconsciente coletivo interferem diretamente no processo individual de individuação?",
+        "Qual a sua principal divergência teórica em relação à visão de 'Libido' proposta por Sigmund Freud?",
+        "Como o conceito de 'Sincronicidade' desafia fundamentalmente a nossa noção linear de causalidade?",
+        "O que a 'Sombra' representa na jornada psíquica do indivíduo inserido na cultura ocidental?"
+      ]
+    }
+  ]
+}

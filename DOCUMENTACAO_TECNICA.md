@@ -43,10 +43,12 @@ O sistema utiliza um wrapper customizável (`adk.py`) para extração de JSON.
 ---
 
 ## 4. Orquestração de Pesquisa (Search Engine)
-O `DeepSearchTool` realiza buscas concorrentes em múltiplas fontes acadêmicas:
-1.  **ArXiv**: Busca direta via API XML.
+O `DeepSearchTool` realiza buscas concorrentes em múltiplas fontes acadêmicas com paralelismo termodinâmico:
+1.  **ArXiv**: Busca direta via API XML (Python Wrapper).
 2.  **OpenAlex**: Fonte primária para papers multidisciplinares.
-3.  **SciELO (via OpenAlex)**: Acesso via filtros de `source` do OpenAlex para garantir estabilidade (evita bloqueios 403 e 404 da API nativa).
+3.  **SciELO (via OpenAlex)**: Acesso filtrado para garantir estabilidade e Open Access.
+- **Limite de Capacidade (v9.2.2)**: Aumentado de 2 para **5 resultados por fonte** (Total máx: 15 papers).
+- **Custo Cognitivo**: Aproximadamente ~2.4k tokens de contexto em $n=5$. Window saturation: ~7-10% (Llama/Qwen 32k).
 
 ---
 
@@ -90,8 +92,14 @@ Realizada em 2026-03-11 para validar a robustez do novo `DebateRunner`:
 
 - 26/03/2026: Migração do `tldraw` para `richText` (API v4.5.3). Corrigido erro de validação ao criar nós e setas no canvas. Implementada utilidade `toRichText` no frontend para conversão automática de strings. Alinhadas propriedades dos shapes para usar `textAlign` em vez de `align`.
 - 01/04/2026 (v9.1.0): Universalização da Identidade e Persistência do Gênesis. Refatoração do `debate_node` para suporte a **Aderência Crítica (< 80%)** com fallback para Gênesis automático. Implementada persistência de Almas de emergência no PostgreSQL. Sincronização de metadados entre `chat.py` e `alma_registry.py` para eliminação de nomes genéricos no frontend. Adicionada injeção de `custom_instructions` (léxico e personalidade) nos prompts das Almas do debate.
-- 02/04/2026 (v9.1.1): Hotfix de tipos. Adicionada importação de `Optional` e `Any` em `alma_registry.py` para garantir suporte a `get_debate_manifest` em ambientes de execução estrita.
+- 02/04/2026- v9.1.5: Hotfix Crítico Qdrant. Migração de `search` para `query_points` devido à depreciação/remoção no qdrant-client 1.17.0. Auditoria completa (8 fases) confirmou estabilidade entre cliente 1.17 e servidor 1.12 via UQA.
+- v9.1.4: Estabilização estrutural. Correção de `ImportError` em `graph_factory.py` (AlmaModel -> EcosystemResource).
+- 02/04/2026 (v9.1.3): Estabilização Total do Backend. Corrigidas as últimas instâncias de `NameError: Any` em `panel_selector.py` e `context_analyzer.py`. Verificação via script de diagnóstico em todo o `backend/app`.
 
+### 6. Auditoria de Infraestrutura (v9.1.5)
+- **Qdrant Drift**: Identificado que `qdrant-client` v1.17.0 removeu o método `search`.
+- **Solução (UQA)**: Implementada a Universal Query API (`query_points`) em todo o sistema.
+- **Status do Servidor**: Mantido em v1.12.1 (Docker). A compatibilidade retroativa via UQA foi validada em 8 fases de stress (CRUD, Hybrid, Fusion, SDC).
 
 *Documentação Técnica - Protocolo DocumentationSphinx*
-
+- 02/04/2026 (v9.2.2): **Auditoria do Search Mode (Web Research)**. Upgrade de `MAX_RESULTS_PER_SOURCE` de 2 para 5 após benchmark de performance. Corrigido erro crítico de `NoneType` no parser de `locations` (OpenAlex/SciELO). Suíte de testes `test_search_audit.py` validou integridade de reconstrução de abstracts (Inverted Index) e resiliência a timeouts.

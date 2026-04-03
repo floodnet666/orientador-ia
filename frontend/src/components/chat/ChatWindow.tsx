@@ -210,7 +210,7 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                                     </p>
                                 </div>
                             )}
-                            <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(msg.content)}</p>
+                            <div className="text-white text-sm leading-relaxed">{renderTextWithMath(msg.content)}</div>
                         </div>
                     );
                 })}
@@ -247,7 +247,7 @@ export default function ChatWindow({ onSend, onUpload, isUploading }: Props) {
                                     <span className="ml-auto w-1 h-1 bg-white/60 rounded-full animate-ping" />
                                 )}
                             </div>
-                            <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">{renderTextWithMath(turn.content)}</p>
+                            <div className="text-white text-sm leading-relaxed font-secondary">{renderTextWithMath(turn.content)}</div>
                         </div>
                     )
                 })}

@@ -293,16 +293,18 @@ async def search_almas(vector: list[float], alma_type: str = None, top_k: int = 
             )
         )
 
-    search_result = await client.search(
+    search_result = await client.query_points(
         collection_name=ALMAS_COLLECTION,
-        query_vector=("dense", vector),
+        prefetch=None, # Busca direta
+        query=vector,
+        using="dense",
         query_filter=models.Filter(must=filter_conditions) if filter_conditions else None,
         limit=top_k,
         with_payload=True
     )
 
     hits = []
-    for res in search_result:
+    for res in search_result.points:
         hits.append({
             "id": res.payload.get("alma_id", str(res.id)),
             "name": res.payload.get("name", ""),

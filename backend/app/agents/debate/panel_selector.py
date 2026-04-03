@@ -5,7 +5,8 @@ Uses qwen3.5:0.8b for fast JSON output.
 import json
 import logging
 import time
-from typing import Optional
+from typing import Optional, Any
+
 
 from pydantic import BaseModel
 

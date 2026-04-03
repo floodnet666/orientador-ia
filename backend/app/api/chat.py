@@ -315,7 +315,12 @@ async def chat_websocket(websocket: WebSocket, project_id: UUID):
             return
 
         while True:
-            data = await websocket.receive_text()
+            try:
+                if websocket.client_state != WebSocketState.CONNECTED:
+                    break
+                data = await websocket.receive_text()
+            except Exception:
+                break
             t_msg = time.perf_counter()
             msg_data = json.loads(data)
             
@@ -411,8 +416,8 @@ async def _run_standard_pipeline(
 
 
                 elif kind == "on_chat_model_start":
-                    # Tentar resolver do painel dinâmico no estado primeiro
-                    current_panel = state.get("panel")
+                    # Tentar resolver do painel dinâmico no estado inicial primeiro
+                    current_panel = initial_state.get("panel")
                     if current_panel and node_name.upper() in ["PRIMARIA", "COMPLEMENTAR", "ANTAGONISTA", "METODOLOGICA"]:
                         role_key = node_name.upper()
                         role_data = getattr(current_panel, role_key, None)
@@ -502,7 +507,7 @@ async def _run_standard_pipeline(
                         # Resolver nome final para persistência
                         p_name = DEBATE_ALMAS[node_name].name
                         p_id = DEBATE_ALMAS[node_name].id
-                        current_panel = state.get("panel")
+                        current_panel = initial_state.get("panel")
                         if current_panel:
                             role_data = getattr(current_panel, node_name.upper(), None)
                             if role_data:

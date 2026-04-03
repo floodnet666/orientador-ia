@@ -46,6 +46,7 @@ services:
         condition: service_started
     volumes:
       - ./backend/app:/app/app # Hot reload em desenvolvimento
+      - ./backend/tests:/app/tests # Sincronização de testes
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
       - ./scripts:/app/scripts

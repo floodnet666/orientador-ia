@@ -87,7 +87,8 @@ class OllamaClient:
         )
 
     async def chat_complete(
-        self, model: str, messages: list, system: Optional[str] = None, tools: Optional[list] = None
+        self, model: str, messages: list, system: Optional[str] = None, tools: Optional[list] = None,
+        options: Optional[dict] = None
     ) -> dict:
         """Non-streaming: returns full message dict. Logs timing."""
         payload: dict = {"model": model, "messages": messages, "stream": False}
@@ -95,6 +96,8 @@ class OllamaClient:
             payload["system"] = system
         if tools:
             payload["tools"] = tools
+        if options:
+            payload["options"] = options
 
         t0 = time.perf_counter()
         url = f"{self.base_url}/api/chat"
