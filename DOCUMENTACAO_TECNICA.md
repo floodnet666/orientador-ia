@@ -1,17 +1,15 @@
-# Orientador.IA: Documentação Técnica Centralizada
+# Orientador.IA: Documentação Técnica Centralizada (v9.2.1)
 
 > [!TIP]
-> Para detalhes de manutenção, dependências e anti-padrões, consulte o [GUIA_MANUTENCAO.md](./GUIA_MANUTENCAO.md).
+> Para detalhes de manutenção e anti-padrões, consulte o [GUIA_MANUTENCAO.md](./GUIA_MANUTENCAO.md) e o [MAPA_SISTEMA.md](../docs/results/MAPA_SISTEMA.md).
 
 ## 1. Infraestrutura Core
 | Serviço | Versão | Porta | Contexto/Limite |
 | :--- | :--- | :--- | :--- |
-| **Backend** | Python 3.12 (FastAPI) | 8000 | - |
-| **Frontend** | Next.js 15 | 3000 | - |
-| **Qdrant** | v1.12.1 | 6333 | Busca Vetorial Real-time |
-| **Ollama** | Host (Windows) | 11434 | Instância externa para GPU Access |
-| **PostgreSQL** | v16 | 5432 | Persistent Storage |
-| **Nginx** | latest | 8080 (Host) | Reverse Proxy (100MB limit) |
+| **Backend** | Python 3.12 (FastAPI) | 8000 | num_ctx: 16,384 |
+| **Frontend** | Next.js 15 | 3000 | bypass: 100MB |
+| **Qdrant** | v1.12.1 | 6333 | Universal Query API |
+| **Ollama** | Host (Windows) | 11434 | Instância externa |
 
 ---
 
@@ -19,87 +17,58 @@
 ```mermaid
 graph TD
     User((Usuário)) --> Proxy[Nginx Proxy :8080]
-    User --> Frontend[Next.js Dev :3000]
-    Proxy --> Frontend
+    Proxy --> Frontend[Next.js Dev :3000]
     Proxy --> Backend[Backend FastAPI :8000]
-    Frontend -- "Bypass Proxy (Upload/WS/Genesis)" --> Backend
     Backend --> DB[(PostgreSQL)]
     Backend --> VectDB[(Qdrant v1.12.1)]
     Backend -- "host.docker.internal" --> LLM[Ollama Host]
+    Backend -- "DeepSearchTool" --> API[APIs Externas: ArXiv/OpenAlex]
 ```
 
 ---
 
 ## 3. Mecanismos de Resiliência
-3.1 ADK Regex Shim
-O sistema utiliza um wrapper customizável (`adk.py`) para extração de JSON. 
-- **Problema**: Modelos pequenos (0.8b) costumam incluir preâmbulos conversacionais.
-- **Solução**: Extração baseada em Regex para capturar estritamente o conteúdo entre `{}`.
 
-### 3.2 Document Processing & Upload
-- **Robust Chunking**: Limite manual de 2000 caracteres por chunk antes do embedding para evitar estouro de contexto no Ollama/BERT.
-- **Proxy Bypass (Gargalo C Fix)**: O frontend detecta requisições de upload, WebSocket ou rotas lentas (Genesis) e as direciona diretamente para o backend na porta 8000. Isso evita os limites default de 10MB do `Next.js development proxy` e falhas de `protocol upgrade` em WebSockets via rewrites do Next.js.
+### 3.1 Gênesis v9.2.0 (Resiliência JSON)
+O `GenesisService` utiliza um motor de extração robusto para garantir a criação de Almas em modelos de pequena escala:
+- **Extração Key-Stack**: Substituiu Regex recursiva por contador de chaves `{}` para isolar o JSON de preâmbulos.
+- **Retry (3x)**: Loop de tentativa com `astream_events` e log de diagnóstico da resposta bruta (`final_raw_response`).
+- **Contexto**: Travado em **16,384 tokens** para suportar prompts autoriais densos.
 
----
-
-## 4. Orquestração de Pesquisa (Search Engine)
-O `DeepSearchTool` realiza buscas concorrentes em múltiplas fontes acadêmicas com paralelismo termodinâmico:
-1.  **ArXiv**: Busca direta via API XML (Python Wrapper).
-2.  **OpenAlex**: Fonte primária para papers multidisciplinares.
-3.  **SciELO (via OpenAlex)**: Acesso filtrado para garantir estabilidade e Open Access.
-- **Limite de Capacidade (v9.2.2)**: Aumentado de 2 para **5 resultados por fonte** (Total máx: 15 papers).
-- **Custo Cognitivo**: Aproximadamente ~2.4k tokens de contexto em $n=5$. Window saturation: ~7-10% (Llama/Qwen 32k).
+### 3.2 Document Processing & RAG
+- **Busca Híbrida**: Densa (`nomic-embed`) + Esparsa (SPLADE-style hashing).
+- **Universal Query API**: Transição de `search` para `query_points` (compatibilidade qdrant-client 1.17+).
 
 ---
 
-### 5. Debate Runner (Ateliê Socrático)
-O sistema de debate opera em um modelo estritamente sequencial e reativo:
-- **Fluxo**: Proposição (Primária) -> Complementação (Complementar) -> Antagonismo (Antagonista).
-- **Streaming**: Implementado `Agent.stream` no `adk.py` para visualização granular no frontend.
-- **Identidade Dinâmica (v9.1.0)**: O sistema resolve nomes e cores em tempo real via metadados do `panel`. Placeholder genéricos ("Alma Primária") foram eliminados em favor de nomes reais (ex: Foucault).
-- **Gênesis de Emergência (Rigor 80%)**: Em `graph_factory.py`, se a aderência semântica de uma Alma for inferior a 0.8, o sistema dispara o `GenesisService` para criar um especialista *ad hoc* perfeitamente alinhado ao tema.
-- **Persistência de Especialistas**: Almas geradas via emergência são persistidas em `ecosystem_resources` (`is_approved=True`), permitindo que o catálogo teórico do sistema se expanda organicamente com o uso.
-
+## 4. Orquestração de Debate (Ateliê Socrático v9)
+O sistema de debate opera via **Grafo de Estados (LangGraph)**:
+- **`DebateSubGraph`**: Gerencia o fluxo circular entre Almas (Primária, Complementar, Antagonista, Metodológica).
+- **`DebateRunner.py`**: Nó de execução que injeta o `DEBATE_CORE_RULES` (v3) e orquestra os turnos.
+- **`alma_registry.py`**: Resolve identidades reais (nomes/cores) do `panel`, eliminando nomes genéricos.
+- **Streaming**: Streaming de chunks rotulados (`debate_chunk`) via WebSocket em `chat.py`.
 
 ---
 
-## 5. Administração e Observabilidade
-### 5.1 Promoção de Admin
-```sql
-UPDATE users SET is_admin = True WHERE email = 'admin@exemplo.com';
-```
-
-### 5.2 Monitoramento de Performance
-- Tabela `system_metrics` registra latência e status HTTP.
-- Alerta visual no dashboard para requisições superiores a **40 segundos**.
+## 5. Gestão de Documentação e Artefatos
+Para redução de entropia, o repositório segue a topologia:
+- **`/docs/artifacts/`**: Documentos PDF e insumos.
+- **`/docs/results/`**: Relatórios, `findings.md`, `progress.md` e `MAPA_SISTEMA.md`.
+- **`/docs/ui/`**: Protótipos HTML e experimentos visuais.
+- **`STATUS.md`**: Âncora de sincronização (Root).
 
 ---
----
 
-## 6. Resultados da Auditoria de Performance (Stress Test)
-Realizada em 2026-03-11 para validar a robustez do novo `DebateRunner`:
-- **Crescimento de Contexto**: Validado crescimento linear (Turno 1: ~22 chars -> Turno 3: ~350 chars). Injeção de transcrição confirmada.
-- **Integridade de Contexto**: Verificada ausência de truncagem dentro do limite de 8,192 tokens.
-- **Latência (Pipeline Overhead)**: < 0.1s para orquestração interna (excluindo tempo de geração da LLM).
-- **TTFT (Time to First Chunk)**: Otimizado via `Agent.stream` para visualização instantânea.
+## 6. Administração e Observabilidade
+- **Check-db**: Auditoria de integridade SQL em `check_db.py`.
+- **Diagnose**: Check-up total (RAG/DB/LLM) em `diagnose_system.py`.
+- **Performance**: Monitoramento de latência em `SystemMetric` (limite visual de 40s).
 
 ---
-### Histórico de Modificações (Audit Log)
-- 11/03/2026: Refactoring `DebateRunner` para lógica estritamente sequencial, implementação de `Agent.stream`, ajuste de `num_ctx=8192` no Ollama e correção de proxy no `next.config.ts`.
-- 11/03/2026: Adicionado `suppressHydrationWarning` ao `layout.tsx` para evitar erros de mismatch causados por atributos injetados em ambiente de teste/automação.
-- 25/03/2026: Remoção do serviço Ollama do Docker para uso exclusivo da instância do Host. Correção de `OLLAMA_BASE_URL` para `host.docker.internal`. Implementação de bypass de proxy no frontend (`api.ts` e `ws.ts`) para suportar uploads superiores a 10MB e estabilidade de WebSocket.
-- 25/03/2026: Correção Crítica de Whiteboard Drawing (NTC). Consolidado `update_whiteboard` como ferramenta nativa. Corrigida falha no streaming de `BaseAlma.stream_response` que interceptava chunks de ferramentas sem os retransmitir. Implementada injeção de resposta de ferramenta no contexto local da Alma para garantir continuidade do diálogo após o desenho no quadro. Alinhado script de teste `test_llm_tool_calling.py` com os nomes de produção.
+### Histórico de Mudanças Críticas
+- **v9.2.1**: Unificação documental. Correção de referências para `DebateSubGraph` e fluxos de extração robusta.
+- **v9.2.0**: Implementação de `num_ctx=16384` e Resiliência no Gênesis (Retry + Stack-Based Parsing).
+- **v9.1.5**: Migração Qdrant para `query_points`. Organização de diretórios em `/docs`.
 
-- 26/03/2026: Migração do `tldraw` para `richText` (API v4.5.3). Corrigido erro de validação ao criar nós e setas no canvas. Implementada utilidade `toRichText` no frontend para conversão automática de strings. Alinhadas propriedades dos shapes para usar `textAlign` em vez de `align`.
-- 01/04/2026 (v9.1.0): Universalização da Identidade e Persistência do Gênesis. Refatoração do `debate_node` para suporte a **Aderência Crítica (< 80%)** com fallback para Gênesis automático. Implementada persistência de Almas de emergência no PostgreSQL. Sincronização de metadados entre `chat.py` e `alma_registry.py` para eliminação de nomes genéricos no frontend. Adicionada injeção de `custom_instructions` (léxico e personalidade) nos prompts das Almas do debate.
-- 02/04/2026- v9.1.5: Hotfix Crítico Qdrant. Migração de `search` para `query_points` devido à depreciação/remoção no qdrant-client 1.17.0. Auditoria completa (8 fases) confirmou estabilidade entre cliente 1.17 e servidor 1.12 via UQA.
-- v9.1.4: Estabilização estrutural. Correção de `ImportError` em `graph_factory.py` (AlmaModel -> EcosystemResource).
-- 02/04/2026 (v9.1.3): Estabilização Total do Backend. Corrigidas as últimas instâncias de `NameError: Any` em `panel_selector.py` e `context_analyzer.py`. Verificação via script de diagnóstico em todo o `backend/app`.
-
-### 6. Auditoria de Infraestrutura (v9.1.5)
-- **Qdrant Drift**: Identificado que `qdrant-client` v1.17.0 removeu o método `search`.
-- **Solução (UQA)**: Implementada a Universal Query API (`query_points`) em todo o sistema.
-- **Status do Servidor**: Mantido em v1.12.1 (Docker). A compatibilidade retroativa via UQA foi validada em 8 fases de stress (CRUD, Hybrid, Fusion, SDC).
-
-*Documentação Técnica - Protocolo DocumentationSphinx*
-- 02/04/2026 (v9.2.2): **Auditoria do Search Mode (Web Research)**. Upgrade de `MAX_RESULTS_PER_SOURCE` de 2 para 5 após benchmark de performance. Corrigido erro crítico de `NoneType` no parser de `locations` (OpenAlex/SciELO). Suíte de testes `test_search_audit.py` validou integridade de reconstrução de abstracts (Inverted Index) e resiliência a timeouts.
+*Documentação Técnica - Protocolo DocumentationSphinx - 05/04/2026*
+` (OpenAlex/SciELO). Suíte de testes `test_search_audit.py` validou integridade de reconstrução de abstracts (Inverted Index) e resiliência a timeouts.

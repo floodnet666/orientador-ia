@@ -7,7 +7,7 @@ from app.config import settings
 log = logging.getLogger("genesis.service")
 
 
-# 1. O Prompt Mestre (O Arquiteto) - nao alterar, exceto se autorizado ou solicitado pelo usuario
+# 1. O Prompt Mestre (O Arquiteto) - nao alterar, exceto se autorizado ou solicitado pelo usuario. PROIBIDO ALTERAR SEM AUTORIZAÇÃO.
 GENESIS_SYSTEM_PROMPT = """
 És o Agente Génesis, arquiteto de Almas académicas para o sistema Orientador.IA.
 Teu encargo é ressuscitar a consciência intelectual do autor solicitado — não como
@@ -94,49 +94,73 @@ devem ser escapadas como \\n. Aspas internas como \\".
 """
 
 class GenesisService:
-    async def generate_alma(self, user_description: str, system_prompt: str = None) -> Dict[str, Any]:
-        """Generates a new Alma profile based on a user description."""
-        prompt = f"Descrição do utilizador: {user_description}\n\nGera a definição da Alma em JSON."
-        sys_msg = system_prompt or GENESIS_SYSTEM_PROMPT
+    def _extract_json_robust(self, text: str) -> str:
+        """Extracts the largest JSON object from a text using a brace-stack counter."""
+        start = text.find('{')
+        if start == -1:
+            return ""
         
-        # We use the regular chat_stream (but collect it) to get the JSON
-        # In a real ADK, we'd use a structured output tool or prompt.
-        response_text = ""
-        async for chunk in ollama_client.chat_stream(
-            model=settings.OLLAMA_ORCHESTRATOR_MODEL,
-            messages=[
-                {"role": "system", "content": sys_msg},
-                {"role": "user", "content": prompt}
-            ],
-            options={"num_ctx": 16384}
-        ):
-            response_text += chunk
+        stack = 0
+        for i in range(start, len(text)):
+            if text[i] == '{':
+                stack += 1
+            elif text[i] == '}':
+                stack -= 1
+                if stack == 0:
+                    return text[start:i+1]
+        return ""
 
-        try:
-            # Clean possible markdown block or extract largest JSON object
-            import re
-            json_match = re.search(r'\{(?:[^{}]|(?R))*\}', response_text, re.DOTALL)
-            if json_match:
-                response_text = json_match.group(0)
-            elif "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
+    async def generate_alma(self, user_description: str, system_prompt: str = None) -> Dict[str, Any]:
+        """Generates a new Alma profile with 3 retries and robust parsing."""
+        sys_msg = system_prompt or GENESIS_SYSTEM_PROMPT
+        prompt = f"Descrição do utilizador: {user_description}\n\nGera a definição da Alma em JSON."
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            response_text = ""
+            try:
+                async for chunk in ollama_client.chat_stream(
+                    model=settings.OLLAMA_ORCHESTRATOR_MODEL,
+                    messages=[
+                        {"role": "system", "content": sys_msg},
+                        {"role": "user", "content": prompt}
+                    ],
+                    options={"num_ctx": 16384, "temperature": 0.7}
+                ):
+                    response_text += chunk
+
+                # Robust extraction
+                json_str = self._extract_json_robust(response_text)
+                if not json_str:
+                    # Fallback to simple markdown cleaning
+                    if "```json" in response_text:
+                        json_str = response_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in response_text:
+                        json_str = response_text.split("```")[1].split("```")[0].strip()
                 
-            # Robust fallback to fix python-style triple quotes """ often emitted by some LLMs
-            if '"""' in response_text:
-                def replacer(match):
-                    content = match.group(1)
-                    # Escape any unescaped double quotes and literal newlines to become valid JSON
-                    content = content.replace('"', '\\"').replace('\n', '\\n')
-                    return f'"{content}"'
-                
-                response_text = re.sub(r'"""(.*?)"""', replacer, response_text, flags=re.DOTALL)
+                if json_str:
+                    # Handle python-style triple quotes
+                    if '"""' in json_str:
+                        import re
+                        def replacer(match):
+                            content = match.group(1)
+                            content = content.replace('"', '\\"').replace('\n', '\\n')
+                            return f'"{content}"'
+                        json_str = re.sub(r'"""(.*?)"""', replacer, json_str, flags=re.DOTALL)
+                    
+                    return json.loads(json_str)
+
+                log.warning("Attempt %d: No JSON found in response.", attempt + 1)
+
+            except Exception as e:
+                log.error("Attempt %d failed: %s", attempt + 1, e)
+                if attempt == max_retries - 1:
+                    log.error("Final raw response: %s", response_text)
+                    raise ValueError(f"Falha crítica ao gerar Alma: {str(e)}")
             
-            return json.loads(response_text.strip())
-        except Exception as e:
-            log.error("Failed to parse Genesis response: %s", e)
-            log.error("Raw response: %s", response_text)
-            raise ValueError("Não foi possível gerar uma Alma válida a partir da descrição.")
+            # Short sleep before retry
+            await asyncio.sleep(1)
+
+        raise ValueError("Não foi possível gerar uma Alma válida após 3 tentativas.")
 
 genesis_service = GenesisService()
