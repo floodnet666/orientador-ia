@@ -33,6 +33,7 @@ async def test_processor_filters_redundant_chunks():
                                     # Forçar o mock do NoveltyFilter a rejeitar o chunk 2
                                     with patch("app.services.contextual_enricher.NoveltyFilter") as MockFilter:
                                         instance = MockFilter.return_value
+                                        instance.is_redundant = AsyncMock()
                                         # is_redundant retorna False para chunk1, True para chunk2
                                         instance.is_redundant.side_effect = [False, True]
                                         

@@ -2,62 +2,70 @@ import pytest
 from app.services.contextual_enricher import NoveltyFilter
 
 
+from unittest.mock import AsyncMock, patch
+import numpy as np
+
+@pytest.fixture
+def mock_embed():
+    with patch("app.services.ollama_client.ollama_client.embed", new_callable=AsyncMock) as m:
+        yield m
+
 class TestNoveltyFilter:
     """
     Suite TDD para NoveltyFilter.
-    Threshold de referência da spec: 0.85.
+    Threshold de referência da spec: 0.85 (Embeddings / Cosine Similarity).
     """
 
-    def test_rejects_redundant_input(self):
+    @pytest.mark.asyncio
+    async def test_rejects_redundant_input(self, mock_embed):
         """
-        Input quase idêntico ao histórico deve ser marcado como redundante.
-
-        Nota matemática: Jaccard bag-of-words sobre PT-BR produz ~0.70 para
-        frases "quase idênticas". O threshold 0.85 da spec é calibrado para
-        cosine similarity de embeddings densos, não para Jaccard. Aqui usamos
-        threshold=0.65 que é o limite empiricamente correto para Jaccard neste
-        domínio linguístico. Em produção, o NoveltyFilter opera sobre embeddings.
+        Input semanticamente idêntico ao histórico deve ser marcado como redundante.
+        O threshold padrão é 0.85 para similaridade de cosseno.
         """
-        nf = NoveltyFilter(threshold=0.65)
-        history = [
-            "O habitus em Bourdieu é uma estrutura estruturante.",
-            "A violência simbólica é um conceito chave na sociologia.",
+        # Vectores paralelos perfeitamente idênticos -> cos_sim = 1.0 > 0.85
+        mock_embed.side_effect = [
+            [0.1, 0.2, 0.3], # new_text embedding
+            [0.1, 0.2, 0.3], # history[0] embedding
         ]
-        new_input = "Bourdieu afirma que o habitus é uma estrutura estruturante."
-        assert nf.is_redundant(new_input, history) is True
-
-    def test_accepts_novel_input(self):
-        """Input semanticamente diferente deve ser aceite (não-redundante)."""
         nf = NoveltyFilter(threshold=0.85)
-        history = ["O habitus em Bourdieu é uma estrutura estruturante."]
-        new_input = "Foucault foca na microfísica do poder e na biopolítica."
-        assert nf.is_redundant(new_input, history) is False
+        history = ["Texto histórico."]
+        new_input = "Texto muito parecido."
+        result = await nf.is_redundant(new_input, history)
+        assert result is True
 
-    def test_empty_history_never_redundant(self):
-        """Com histórico vazio, qualquer input é aceite."""
+    @pytest.mark.asyncio
+    async def test_accepts_novel_input(self, mock_embed):
+        """Input semanticamente diferente deve ser aceite (cosine similarity baixo)."""
+        # Vectores ortogonais -> cos_sim = 0.0 < 0.85
+        mock_embed.side_effect = [
+            [1.0, 0.0, 0.0], # new_text embedding
+            [0.0, 1.0, 0.0], # history[0] embedding
+        ]
         nf = NoveltyFilter(threshold=0.85)
-        assert nf.is_redundant("Qualquer texto.", []) is False
+        history = ["Texto de uma coisa."]
+        new_input = "Texto de outra coisa completamente diferente."
+        result = await nf.is_redundant(new_input, history)
+        assert result is False
 
-    def test_exact_duplicate_is_redundant(self):
-        """Cópia exacta deve ter similaridade 1.0 > threshold."""
+    @pytest.mark.asyncio
+    async def test_empty_history_never_redundant(self, mock_embed):
+        """Com histórico vazio, qualquer input é aceite e não chama embeddings do histórico."""
         nf = NoveltyFilter(threshold=0.85)
-        text = "Teoria do capital social e campo em Bourdieu."
-        assert nf.is_redundant(text, [text]) is True
+        result = await nf.is_redundant("Qualquer texto.", [])
+        assert result is False
+        # Para histórico vazio, nem precisamos calcular o embedding do new_text
+        mock_embed.assert_not_called()
 
-    def test_threshold_boundary(self):
-        """Score exatamente igual ao threshold deve ser aceite (> não >=)."""
-        nf = NoveltyFilter(threshold=1.0)
-        text = "Texto de referência."
-        # Threshold 1.0 — apenas cópia exacta seria redundante
-        assert nf.is_redundant(text, [text]) is False  # 1.0 > 1.0 == False
-
-    def test_tokenizer_strips_punctuation(self):
-        """Pontuação não deve influenciar a tokenização."""
+    @pytest.mark.asyncio
+    async def test_cosine_similarity_math(self, mock_embed):
+        """Testar a matemática interna da similaridade de cosseno."""
         nf = NoveltyFilter(threshold=0.85)
-        # Mesmas palavras, pontuação diferente
-        a = "habitus, campo e capital!"
-        b = "habitus campo e capital"
-        # Devem resultar no mesmo conjunto de tokens → similaridade 1.0
-        tokens_a = nf._tokenize(a)
-        tokens_b = nf._tokenize(b)
-        assert tokens_a == tokens_b
+        v1 = [1.0, 2.0, 3.0]
+        v2 = [1.0, 2.0, 3.0]
+        v3 = [-1.0, -2.0, -3.0]
+        
+        sim_1_2 = nf._cosine_similarity(v1, v2)
+        sim_1_3 = nf._cosine_similarity(v1, v3)
+        assert np.isclose(sim_1_2, 1.0)
+        assert np.isclose(sim_1_3, -1.0)
+

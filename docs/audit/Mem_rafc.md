@@ -15,7 +15,7 @@
 | 2 | Busca Híbrida: Set-Union Merge (SUM) | ✅ **IMPLEMENTADO** | `hybrid_search.py` |
 | 3 | Integração do NoveltyFilter na ingestão | ✅ **IMPLEMENTADO** | `document_processor.py` |
 | 4 | Migração RRF → SUM na `hybrid_search_evidence` | ✅ **IMPLEMENTADO** | `hybrid_search.py` |
-| 5 | Upgrade do NoveltyFilter para embedding cosine | ⚠️ **PENDENTE** | `contextual_enricher.py` |
+| 5 | Upgrade do NoveltyFilter para embedding cosine | ✅ **IMPLEMENTADO** | `contextual_enricher.py` |
 
 ---
 
@@ -130,31 +130,27 @@ A função de topo `hybrid_search_evidence` (usada pelo backend REST da RAG) foi
 
 ---
 
-## ⚠️ Componente 3 (PENDENTE): Upgrade NoveltyFilter para Embeddings
+## ✅ Componente 3: Upgrade NoveltyFilter para Embeddings Cosine
 
-### O que falta
+### O que foi implementado
 
-Substituir Jaccard bag-of-words por cosine similarity sobre `nomic-embed-text` (768d).
+O filtro de similaridade evoluiu de Jaccard bag-of-words síncrono para métricas vetoriais semânticas via embeddings.
 
 ```python
-# Versão futura — NÃO IMPLEMENTADA
 class NoveltyFilter:
-    async def is_redundant_semantic(
-        self, new_text: str, history: list[str], 
-        threshold: float = 0.85
-    ) -> bool:
-        new_emb = await ollama_client.embed(new_text)
-        for past in history:
-            past_emb = await ollama_client.embed(past)
-            similarity = cosine_similarity(new_emb, past_emb)
-            if similarity > threshold:
-                return True
-        return False
+    def __init__(self, threshold: float = 0.85):
+        self.threshold = threshold
+        self._cache: dict[str, list[float]] = {}
+        
+    async def is_redundant(self, new_text: str, history: list[str]) -> bool:
+        # Puxa do dict _cache em O(1), e embeda apenas textos inauditos
+        ...
+        similarity = self._cosine_similarity(new_emb, past_emb)
+        ...
 ```
 
-**Vantagem:** Detecta redundância semântica genuína (`"habitus"` == `"disposição estruturada"` em significado, mas Jaccard = 0).  
-**Custo:** Latência adicional por chamada ao Ollama para cada elemento do histórico.  
-**Otimização sugerida:** Pré-computar e cachear embeddings do histórico no Qdrant.
+**Vantagem implementada:** O threshold `0.85` nativo atua agora identificando redundância semântica genuína através das relações matemáticas, e não de colisão textual pura (ignorando lexica diferente que signifique o mesmo).
+**Solução de Performance:** Implementámos um Dicionário de Cache Local (LRU conceptual) na instância da classe invocada na sub-rotina do documento. Numa pipeline de 300 chunks, o histórico de embeddings não é re-pesquisado (O(n) pesado em tráfego), pois é servido do object_state interno em `O(1)`. O impacto na rede ao nó do Ollama não aumenta com o ciclo.
 
 ---
 

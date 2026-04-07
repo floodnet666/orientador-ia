@@ -79,9 +79,9 @@ class EmpiricalProcessor:
         history_texts = []
 
         for chunk in enriched_chunks:
-            # Aplica o Filtro de Novidade (Jaccard)
-            if novelty_filter.is_redundant(chunk.text_raw, history_texts):
-                log.info("Chunk redundante ignorado (Jaccard): %s", chunk.chunk_id)
+            # Aplica o Filtro de Novidade (Semantic Cosine Embedding)
+            if await novelty_filter.is_redundant(chunk.text_raw, history_texts):
+                log.info("Chunk redundante ignorado (Cosine Sim): %s", chunk.chunk_id)
                 continue
 
             # Vetor Denso (Contextualizado)

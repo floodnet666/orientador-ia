@@ -18,40 +18,50 @@ from app.services.pdf_markdown_extractor import MarkdownChunk
 
 class NoveltyFilter:
     """
-    Filtro de novidade baseado em similaridade de Jaccard.
-    Previne inchaço do banco vetorial com mensagens redundantes.
+    Filtro de novidade baseado em Similaridade de Cosseno com embeddings.
+    Previne inchaço do banco vetorial com mensagens semanticamente redundantes.
 
     Threshold spec: 0.85 (configurável).
-    Complexidade: O(n * |V|) onde n = |history|, |V| = vocabulário único.
+    Complexidade: O(n) na comparação, com caching O(1) para embeddings via dicionário interno.
     """
 
     def __init__(self, threshold: float = 0.85) -> None:
         self.threshold = threshold
+        self._cache: dict[str, list[float]] = {}
 
-    def _tokenize(self, text: str) -> set:
-        clean = re.sub(r"[^\w\s]", "", text.lower())
-        return set(clean.split())
+    def _cosine_similarity(self, v1: list[float], v2: list[float]) -> float:
+        import numpy as np
+        a, b = np.array(v1), np.array(v2)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return float(np.dot(a, b) / (norm_a * norm_b))
 
-    def _jaccard_similarity(self, set_a: set, set_b: set) -> float:
-        if not set_a and not set_b:
-            return 1.0
-        intersection = len(set_a & set_b)
-        union = len(set_a | set_b)
-        return intersection / union
-
-    def is_redundant(self, new_text: str, history: list[str]) -> bool:
+    async def is_redundant(self, new_text: str, history: list[str]) -> bool:
         """
-        Retorna True se new_text for similar a qualquer entrada do histórico
-        acima do threshold definido.
+        Retorna True se new_text for semanticamente similar a qualquer 
+        entrada do histórico acima do threshold (padrão 0.85).
         """
         if not history:
             return False
-        new_tokens = self._tokenize(new_text)
-        max_similarity = max(
-            self._jaccard_similarity(new_tokens, self._tokenize(past))
-            for past in history
-        )
-        return max_similarity > self.threshold
+            
+        from app.services.ollama_client import ollama_client
+
+        if new_text not in self._cache:
+            self._cache[new_text] = await ollama_client.embed(new_text)
+        new_emb = self._cache[new_text]
+
+        for past in history:
+            if past not in self._cache:
+                self._cache[past] = await ollama_client.embed(past)
+            past_emb = self._cache[past]
+
+            similarity = self._cosine_similarity(new_emb, past_emb)
+            if similarity > self.threshold:
+                return True
+
+        return False
 
 # Respeita OLLAMA_NUM_PARALLEL=1
 _OLLAMA_SEMAPHORE = asyncio.Semaphore(1)

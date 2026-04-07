@@ -1,0 +1,64 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.13, pytest-9.0.2, pluggy-1.6.0 -- D:\orientador.ia\orientador-ia\backend\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\orientador.ia\orientador-ia\backend
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.7.22, asyncio-1.3.0, mock-3.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 13 items
+
+tests/services/test_contextual_enricher.py::TestNoveltyFilter::test_rejects_redundant_input PASSED [  7%]
+tests/services/test_contextual_enricher.py::TestNoveltyFilter::test_accepts_novel_input PASSED [ 15%]
+tests/services/test_contextual_enricher.py::TestNoveltyFilter::test_empty_history_never_redundant PASSED [ 23%]
+tests/services/test_contextual_enricher.py::TestNoveltyFilter::test_exact_duplicate_is_redundant PASSED [ 30%]
+tests/services/test_contextual_enricher.py::TestNoveltyFilter::test_threshold_boundary PASSED [ 38%]
+tests/services/test_contextual_enricher.py::TestNoveltyFilter::test_tokenizer_strips_punctuation PASSED [ 46%]
+tests/services/test_hybrid_search.py::TestSetUnionMerge::test_preserves_dense_order_and_appends_sparse_anchors PASSED [ 53%]
+tests/services/test_hybrid_search.py::TestSetUnionMerge::test_no_duplication_when_sparse_subset_of_dense PASSED [ 61%]
+tests/services/test_hybrid_search.py::TestSetUnionMerge::test_limit_is_respected PASSED [ 69%]
+tests/services/test_hybrid_search.py::TestSetUnionMerge::test_high_score_anchor_interjected_at_position_1 PASSED [ 76%]
+tests/services/test_hybrid_search.py::TestSetUnionMerge::test_low_score_anchor_appended_at_end PASSED [ 84%]
+tests/services/test_hybrid_search.py::TestSetUnionMerge::test_original_payload_not_mutated PASSED [ 92%]
+tests/services/test_hybrid_search.py::TestSetUnionMerge::test_empty_dense_returns_sparse_as_anchors PASSED [100%]
+
+============================== warnings summary ===============================
+app\models\schemas.py:27
+  d:\orientador.ia\orientador-ia\backend\app\models\schemas.py:27: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class UserOut(BaseModel):
+
+app\models\schemas.py:53
+  d:\orientador.ia\orientador-ia\backend\app\models\schemas.py:53: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ProjectOut(BaseModel):
+
+app\models\schemas.py:107
+  d:\orientador.ia\orientador-ia\backend\app\models\schemas.py:107: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ChatMessageOut(BaseModel):
+
+app\models\schemas.py:146
+  d:\orientador.ia\orientador-ia\backend\app\models\schemas.py:146: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AlmaOut(BaseModel):
+
+app\main.py:115
+  d:\orientador.ia\orientador-ia\backend\app\main.py:115: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+.venv\Lib\site-packages\fastapi\applications.py:4599
+  D:\orientador.ia\orientador-ia\backend\.venv\Lib\site-packages\fastapi\applications.py:4599: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+.venv\Lib\site-packages\_pytest\cacheprovider.py:475
+  D:\orientador.ia\orientador-ia\backend\.venv\Lib\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path D:\orientador.ia\orientador-ia\backend\.pytest_cache\v\cache\nodeids: [WinError 5] Accesso negato: 'D:\\orientador.ia\\orientador-ia\\backend\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 13 passed, 7 warnings in 0.34s ========================
