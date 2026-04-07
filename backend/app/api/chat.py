@@ -387,6 +387,7 @@ async def _run_standard_pipeline(
         
         full_response_text: str = ""
         debate_responses: dict[str, str] = {}
+        last_tool_inputs: dict[str, dict] = {} # Armazena inputs de ferramentas para persistência no on_tool_end
         last_alma_name = initial_state.get("active_theoretical_alma", "Orientador")
 
         try:
@@ -405,7 +406,7 @@ async def _run_standard_pipeline(
 
                 # [A] Eventos de DEBATE (Manifesto e Turnos)
                 if kind == "on_chain_start" and event.get("name") == "debate":
-                    # Extrair o painel do input da chain para o manifesto inicial
+                    # ... [existing debate logic] ...
                     input_data = data.get("input", {})
                     panel = None
                     if isinstance(input_data, dict):
@@ -414,6 +415,12 @@ async def _run_standard_pipeline(
                     await _safe_send_json(websocket, get_debate_manifest(panel))
                     log.info("[PIPELINE:%s] Debate manifest sent with dynamic panel.", req_id)
 
+                elif kind == "on_tool_start":
+                    # CAPTURA DE ARGUMENTOS PARA PERSISTÊNCIA (v9.2.6)
+                    t_name = event.get("name")
+                    if t_name in ["update_whiteboard", "add_canvas_node", "add_canvas_edge"]:
+                        last_tool_inputs[t_name] = data.get("input", {})
+                        log.debug("[PIPELINE:%s] Captured tool input for %s: %s", req_id, t_name, last_tool_inputs[t_name])
 
                 elif kind == "on_chat_model_start":
                     # Tentar resolver do painel dinâmico no estado inicial primeiro
@@ -479,16 +486,37 @@ async def _run_standard_pipeline(
                 elif kind == "on_tool_end":
                     t_name = event.get("name")
                     if t_name in ["update_whiteboard", "add_canvas_node", "add_canvas_edge"]:
-                        async with AsyncSessionLocal() as db_sync:
-                            res = await db_sync.execute(
-                                select(ProjectCanvasState).where(ProjectCanvasState.project_id == project_id)
-                            )
-                            canvas_row = res.scalar_one_or_none()
-                            if canvas_row:
-                                await _safe_send_json(websocket, {
-                                    "type": "canvas_update",
-                                    "canvas": canvas_row.canvas_json
-                                })
+                        # PERSISTÊNCIA REAL (v9.2.6)
+                        tool_input = last_tool_inputs.get(t_name)
+                        if tool_input:
+                            async with AsyncSessionLocal() as db_sync:
+                                log.info("[PIPELINE:%s] Persisting tool %s to DB", req_id, t_name)
+                                # Mapear nome da tool para chave do _update_canvas
+                                field_map = {
+                                    "update_whiteboard": tool_input.get("field"),
+                                    "add_canvas_node": "canvas_node",
+                                    "add_canvas_edge": "canvas_edge"
+                                }
+                                field_key = field_map.get(t_name)
+                                if t_name == "update_whiteboard":
+                                    # Para update_whiteboard, o valor está em 'value'
+                                    data_to_save = {field_key: tool_input.get("value")}
+                                else:
+                                    # Para nós e arestas, o objeto é o próprio input
+                                    data_to_save = {field_key: tool_input}
+                                
+                                await _update_canvas(db_sync, project_id, data_to_save)
+                                
+                                # Recarregar para enviar o estado MAIS RECENTE do DB
+                                res = await db_sync.execute(
+                                    select(ProjectCanvasState).where(ProjectCanvasState.project_id == project_id)
+                                )
+                                canvas_row = res.scalar_one_or_none()
+                                if canvas_row:
+                                    await _safe_send_json(websocket, {
+                                        "type": "canvas_update",
+                                        "canvas": canvas_row.canvas_json
+                                    })
 
                 elif kind == "on_chain_end" and event.get("name") == "debate":
                     output = data.get("output", {})

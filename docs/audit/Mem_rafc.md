@@ -204,3 +204,47 @@ Estes não afetam os novos componentes mas devem ser tratados numa sessão futur
 O `sparse_interjection_threshold=20.0` é um valor empírico baseado na escala de scores do BM25/SPLADE. Scores variam por corpus e modelo. **Este parâmetro precisa de calibração experimental** com dados reais do sistema antes de ser promovido como default de produção.
 
 Abordagem sugerida: coletar distribuição de scores esparsos reais via `search_audit_out.txt` e definir percentis (ex: p95 como threshold).
+---
+
+## ✅ Componente 4: EstabilizaÃ§Ã£o de Debate e Whiteboard (v9.2.6)
+
+### O que foi implementado
+
+Auditoria focada na estabilidade tÃ©cnica e rigor semÃ¢ntico do modelo **Gemma 4 (e4b)**.
+
+#### 1. Rigor SemÃ¢ntico (v9.2.4)
+InjeÃ§Ã£o de 5 cenÃ¡rios crÃticos no debate_subgraph.py via ROLE_PROMPTS:
+- **Identidade IncorruptÃvel**: Bloqueia auto-referÃªncia como IA.
+- **Anti-Groupthink**: ForÃ§a discordÃ¢ncia metodolÃ³gica.
+- **Rigor de Causalidade**: Exige cadeias lÃ³gicas explÃcitas.
+- **ContextualizaÃ§Ã£o Geo-PolÃtica**: Filtra generalismos acadÃªmicos.
+- **Protocolo de Escuta Ativa**: Turnos devem citar turnos anteriores.
+
+#### 2. PersistÃªncia Reativa do Whiteboard (v9.2.6)
+CorreÃ§Ã£o da dessincronizaÃ§Ã£o entre Tool Calls e Interface no ackend/app/api/chat.py.
+
+**AlteraÃ§Ãµes no chat.py:**
+- **Adicionado**: DicionÃ¡rio last_tool_inputs para rastrear argumentos entre eventos de stream.
+- **Captura (on_tool_start)**: Intercepta argumentos de dd_canvas_node, dd_canvas_edge e update_whiteboard.
+- **PersistÃªncia (on_tool_end)**: 
+  - **Removido**: Fluxo passivo que apenas lia do banco.
+  - **Adicionado**: Chamada explÃcita a _update_canvas com os dados capturados ANTES do broadcast WebSocket.
+
+#### 3. CorreiÃ§Ãµes de Infraestrutura (v9.2.3)
+- **genesis_service.py**: Adicionado import json (resolvido NameError).
+- **graph_factory.py**: Implementada persistÃªncia atÃ´mica (db.commit()) apÃ³s geraÃ§Ã£o de Almas via loop de GÃªnesis.
+- **healthcheck_rag.py**: Atualizado para validar gemma4:e4b, cessando falsos positivos do qwen2.5.
+
+### Testes de VerificaÃ§Ã£o (v9.2.6)
+
+| Script | Resultado |
+|-------|-----------|
+| scripts/verify_real_debate_flow_v9.py | Executado com terminal (Gemma 4). Validou ativaÃ§Ã£o de subgrafos. |
+| scripts/verify_whiteboard_v926.py | Validou persistÃªncia de dd_canvas_node via chat.py. |
+
+---
+
+## ðŸš€ PrÃ³xima Fronteira (v9.3.0)
+
+- **RefinaÃ§Ã£o de LatÃªncia**: Implementar fallback para modelos menores em caso de timeout do Gemma 4 em CPUs limitadas.
+- **EstÃ©tica CientÃfca**: Ãcones baseados em Ã¡rea de domÃnio (FÃsica, Sociologia, etc.) nos nÃ³s do Whiteboard.

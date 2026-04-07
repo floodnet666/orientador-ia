@@ -19,16 +19,18 @@ async def verify_ollama():
         models = [m['name'] for m in data.get('models', [])]
         logger.info(f"Ollama reachable. Models found: {len(models)}")
         
-        # 1. Test Chat (MANDATORY MODEL: qwen2.5:7b)
-        logger.info("Verifying Ollama Chat (qwen2.5:7b)... This may take time if model is loading.")
+        # 1. Test Chat (MANDATORY MODEL: gemma4:e4b)
+        import os
+        chat_model = os.getenv("OLLAMA_CHAT_MODEL", "gemma4:e4b")
+        logger.info(f"Verifying Ollama Chat ({chat_model})... This may take time if model is loading.")
         payload_chat = json.dumps({
-            "model": "qwen2.5:7b",
+            "model": chat_model,
             "messages": [{"role": "user", "content": "olá"}],
             "stream": False
         }).encode()
         req_chat = urllib.request.Request("http://host.docker.internal:11434/api/chat", data=payload_chat)
         with urllib.request.urlopen(req_chat, timeout=180) as res:
-            logger.info("Ollama Chat (qwen2.5:7b): SUCCESS")
+            logger.info(f"Ollama Chat ({chat_model}): SUCCESS")
 
         # 2. Test embedding
         logger.info("Verifying Ollama Embedding (nomic-embed-text-v2-moe:latest)...")

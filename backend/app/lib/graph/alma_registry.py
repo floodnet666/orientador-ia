@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Literal, Optional, Any
+from app.config import settings
 
 
 AlmaRole = Literal["primaria", "complementar", "antagonista", "metodologica", "synthesis"]
@@ -20,7 +21,7 @@ DEBATE_ALMAS: dict[AlmaRole, AlmaIdentity] = {
         role="primaria",
         color="#4F86C6",
         avatar_initials="AP",
-        model="qwen2.5:7b",
+        model=settings.OLLAMA_CHAT_MODEL,
     ),
     "complementar": AlmaIdentity(
         id="alma_complementar",
@@ -28,7 +29,7 @@ DEBATE_ALMAS: dict[AlmaRole, AlmaIdentity] = {
         role="complementar",
         color="#5BAD72",
         avatar_initials="AC",
-        model="qwen2.5:7b",
+        model=settings.OLLAMA_CHAT_MODEL,
     ),
     "antagonista": AlmaIdentity(
         id="alma_antagonista",
@@ -36,7 +37,7 @@ DEBATE_ALMAS: dict[AlmaRole, AlmaIdentity] = {
         role="antagonista",
         color="#E07B54",
         avatar_initials="AN",
-        model="qwen2.5:7b",
+        model=settings.OLLAMA_CHAT_MODEL,
     ),
     "metodologica": AlmaIdentity(
         id="alma_metodologica",
@@ -44,7 +45,7 @@ DEBATE_ALMAS: dict[AlmaRole, AlmaIdentity] = {
         role="metodologica",
         color="#9B6BB5",
         avatar_initials="AM",
-        model="qwen2.5:7b",
+        model=settings.OLLAMA_CHAT_MODEL,
     ),
     "synthesis": AlmaIdentity(
         id="alma_sintese",
@@ -52,7 +53,7 @@ DEBATE_ALMAS: dict[AlmaRole, AlmaIdentity] = {
         role="synthesis",
         color="#7A8FA6",
         avatar_initials="SÍ",
-        model="qwen2.5:7b",
+        model=settings.OLLAMA_CHAT_MODEL,
     ),
 }
 

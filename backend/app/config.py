@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://frontend:3000"
 
     OLLAMA_BASE_URL: str = "http://ollama:11434"
-    OLLAMA_CHAT_MODEL: str = "qwen2.5:7b"
-    OLLAMA_ORCHESTRATOR_MODEL: str = "qwen2.5:7b"
+    OLLAMA_CHAT_MODEL: str = "gemma4:e4b"
+    OLLAMA_ORCHESTRATOR_MODEL: str = "gemma4:e4b"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text-v2-moe:latest"
     OLLAMA_EMBED_DIMENSIONS: int = 768
     OLLAMA_NUM_CTX: int = 16384

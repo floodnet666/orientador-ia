@@ -4,6 +4,7 @@ Uses qwen3.5:0.8b for fast JSON classification.
 """
 import json
 import logging
+import re
 from json_repair import repair_json
 from typing import Literal, Optional, Any
 
@@ -72,6 +73,29 @@ async def analyze_context(state: Any, user_message: str) -> DebateContext:
     """Classify the user message into a DebateContext."""
     import time
     t0 = time.perf_counter()
+    
+    def _extract_json_robust(text: str) -> str:
+        """Extracts the largest JSON object from a text using a brace-stack counter."""
+        import re
+        # Primeiro, remove possíveis blocos markdown ```json
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+            
+        start = text.find('{')
+        if start == -1:
+            return ""
+        
+        stack = 0
+        for i in range(start, len(text)):
+            if text[i] == '{':
+                stack += 1
+            elif text[i] == '}':
+                stack -= 1
+                if stack == 0:
+                    return text[start:i+1]
+        return ""
 
     # Helpers para extrair dados independentemente do tipo de state (Pydantic ou TypedDict)
     def _get(obj, key, default=None):
@@ -116,12 +140,19 @@ async def analyze_context(state: Any, user_message: str) -> DebateContext:
             log.debug("[DEBATE] ContextAnalyzer raw result: %s", result)
             try:
                 # Try to extract and repair JSON
-                repaired = repair_json(result)
-                if not repaired or repaired == "{}":
-                    log.warning("[DEBATE] json_repair returned empty/invalid: %s", repaired)
-                    raise ValueError("json_repair returned empty string")
+                # [V9.1.7] Extrator robusto para isolar JSON de poluição textual
+                json_str = _extract_json_robust(result)
+                if not json_str:
+                    json_str = repair_json(result) # Fallback para o texto inteiro se não achar {
                 
-                analysis = IntentOutput.model_validate_json(repaired)
+                # Sanitização anti-caracteres-de-controle
+                json_str = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json_str)
+                
+                if not json_str or json_str == "{}":
+                    log.warning("[DEBATE] Extraction/Repair returned empty/invalid: %s", json_str)
+                    raise ValueError("Failed to extract valid JSON from LLM output")
+                
+                analysis = IntentOutput.model_validate_json(json_str)
                 intent = analysis.debate_intent
             except Exception as exc:
                 # Manual fallback: try to find intent name in raw text

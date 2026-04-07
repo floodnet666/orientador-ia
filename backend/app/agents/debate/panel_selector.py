@@ -46,13 +46,13 @@ from app.lib import adk
 PANEL_SELECTOR_PROMPT = """
 Seleccionar 4 Almas DISTINTAS para o painel de debate com base no catálogo e no contexto do projeto.
 
-REGRAS DE ADERÊNCIA:
-1. PRIMARIA: Alma Teórica que fornece a lente principal para o Problema.
-2. COMPLEMENTAR: Alma que expande a tese da Primária, preenchendo lacunas nos Objetivos.
-3. ANTAGONISTA: Alma que desafia a premissa do projeto, forçando o rigor contra o Problema.
-4. METODOLOGICA: Focada na viabilidade técnica e desenho de instrumentos.
+REGRAS DE ADERÊNCIA E RIGOR SEMÂNTICO (v9.2.2):
+1. PRIMARIA: Alma Teórica que fornece a lente principal.
+2. COMPLEMENTAR: Alma que expande a tese, injetando NOVAS tensões e não apenas concordando.
+3. ANTAGONISTA: MANDATÓRIO — Selecionar uma Alma de uma ESCOLA DE PENSAMENTO DIVERGENTE da Primária (ex: Dialética vs Funcionalismo).
+4. METODOLOGICA: Focada no rigor técnico e auditoria de instrumentos.
 
-MANDATÓRIO: O 'selection_rationale' deve explicar explicitamente como o léxico/teoria desta Alma adere ao Problema e Objetivos do Canvas.
+MANDATÓRIO: O 'selection_rationale' deve justificar a DIALÉTICA entre a Primária e a Antagonista.
 Responder OBRIGATORIAMENTE em JSON seguindo o schema SelectedPanel.
 """
 

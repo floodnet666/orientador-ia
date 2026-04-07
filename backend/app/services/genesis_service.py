@@ -1,5 +1,8 @@
+import asyncio
+import re
 import json
 import logging
+from json_repair import repair_json
 from typing import Dict, Any
 from app.services.ollama_client import ollama_client
 from app.config import settings
@@ -129,26 +132,21 @@ class GenesisService:
                 ):
                     response_text += chunk
 
-                # Robust extraction
-                json_str = self._extract_json_robust(response_text)
-                if not json_str:
-                    # Fallback to simple markdown cleaning
-                    if "```json" in response_text:
-                        json_str = response_text.split("```json")[1].split("```")[0].strip()
-                    elif "```" in response_text:
-                        json_str = response_text.split("```")[1].split("```")[0].strip()
+                # [V9.1.7] Extração robusta do maior bloco JSON para ignorar poluição
+                json_raw = self._extract_json_robust(response_text)
+                if not json_raw:
+                    json_raw = response_text # Fallback se não encontrar delimitadores
                 
-                if json_str:
-                    # Handle python-style triple quotes
-                    if '"""' in json_str:
-                        import re
-                        def replacer(match):
-                            content = match.group(1)
-                            content = content.replace('"', '\\"').replace('\n', '\\n')
-                            return f'"{content}"'
-                        json_str = re.sub(r'"""(.*?)"""', replacer, json_str, flags=re.DOTALL)
-                    
-                    return json.loads(json_str)
+                # Saneamento de caracteres de controle invisíveis
+                json_clean = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', json_raw)
+                
+                # [XP/RIGOR] Delegar a correção estrutural ao json-repair
+                try:
+                    repaired = repair_json(json_clean)
+                    return json.loads(repaired)
+                except Exception as e:
+                    log.error("Parsing final falhou no repair_json: %s", e)
+                    raise e
 
                 log.warning("Attempt %d: No JSON found in response.", attempt + 1)
 

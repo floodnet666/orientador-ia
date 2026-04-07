@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Literal, Dict, Any, List, Annotated, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
@@ -134,17 +135,17 @@ async def debate_node(state: BackendState) -> Dict[str, Any]:
                     )
                     
                     db.add(new_alma)
-                    await db.commit()
+                    await db.commit() # [V9.2.0] Persistência Atômica: Salva imediatamente
                     await db.refresh(new_alma)
                     
                     # Atualiza o panel com a alma ressuscitada e PERSISTIDA
                     role_data.alma_name = new_alma.name
                     role_data.alma_id = str(new_alma.id)
-                    role_data.selection_rationale = f"Gênesis de Emergência (Aderência original era baixa: {role_data.score:.2f})"
+                    role_data.selection_rationale = f"Gênesis de Emergência (Gemma 4 Upgrade: {role_data.score:.2f})"
                     role_data.score = 1.0 
                     role_data.custom_instructions = new_alma.system_prompt
                     
-                    log.info(f"[DEBATE:PERSISTENCE] Nova Alma '{new_alma.name}' salva no catálogo (ID: {new_alma.id})")
+                    log.info(f"[DEBATE:PERSISTENCE] Nova Alma '{new_alma.name}' salva atomicamente (ID: {new_alma.id})")
                     
                 except Exception as e:
                     log.error(f"Erro no Génesis de Emergência/Persistência para {r_key}: {e}")
@@ -165,9 +166,10 @@ async def debate_node(state: BackendState) -> Dict[str, Any]:
 
     result = await debate_subgraph.ainvoke(debate_input)
 
+    # [V9.2.0] Acesso robusto ao estado do subgrafo (TypedDict no LangGraph)
     return {
-        "messages": [AIMessage(content=result["synthesis"])],
-        "debate_history": result["turns"],
+        "messages": [AIMessage(content=result.get("synthesis", "Erro na síntese."))],
+        "debate_history": result.get("turns", []),
         "previous_debate_summary": result.get("synthesis_structured"),
         "is_debate_mode": False
     }
