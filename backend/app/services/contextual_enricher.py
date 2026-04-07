@@ -10,9 +10,48 @@ from __future__ import annotations
 
 import asyncio
 import httpx
+import re
 from typing import Optional
 from app.config import settings
 from app.services.pdf_markdown_extractor import MarkdownChunk
+
+
+class NoveltyFilter:
+    """
+    Filtro de novidade baseado em similaridade de Jaccard.
+    Previne inchaço do banco vetorial com mensagens redundantes.
+
+    Threshold spec: 0.85 (configurável).
+    Complexidade: O(n * |V|) onde n = |history|, |V| = vocabulário único.
+    """
+
+    def __init__(self, threshold: float = 0.85) -> None:
+        self.threshold = threshold
+
+    def _tokenize(self, text: str) -> set:
+        clean = re.sub(r"[^\w\s]", "", text.lower())
+        return set(clean.split())
+
+    def _jaccard_similarity(self, set_a: set, set_b: set) -> float:
+        if not set_a and not set_b:
+            return 1.0
+        intersection = len(set_a & set_b)
+        union = len(set_a | set_b)
+        return intersection / union
+
+    def is_redundant(self, new_text: str, history: list[str]) -> bool:
+        """
+        Retorna True se new_text for similar a qualquer entrada do histórico
+        acima do threshold definido.
+        """
+        if not history:
+            return False
+        new_tokens = self._tokenize(new_text)
+        max_similarity = max(
+            self._jaccard_similarity(new_tokens, self._tokenize(past))
+            for past in history
+        )
+        return max_similarity > self.threshold
 
 # Respeita OLLAMA_NUM_PARALLEL=1
 _OLLAMA_SEMAPHORE = asyncio.Semaphore(1)
