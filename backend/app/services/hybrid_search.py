@@ -90,10 +90,9 @@ async def hybrid_search_evidence(
 ) -> List[Dict[str, Any]]:
     """
     Executa busca híbrida industrial v2.2.0.
-    1. Busca Híbrida (Dense + SPLADE Sparse)
-    2. Reciprocal Rank Fusion (RRF) implícito no Qdrant
-    3. Reranking condicional por Spread de Score
-    4. Atribuição de Fonte (Source Identity)
+    1. Busca Híbrida Independente (Dense + SPLADE Sparse)
+    2. Set-Union Merging (SUM) R(q) = D(q) ⊕ (S(q) \ D(q))
+    3. Atribuição de Fonte (Source Identity)
     """
     client = get_qdrant()
     pid_str = str(project_id)
@@ -103,49 +102,38 @@ async def hybrid_search_evidence(
     dense_vector = await ollama_client.embed(query)
     sparse_data = compute_sparse_vector_splade(query)
     
-    # 2. Busca Híbrida Nativa (Qdrant Prefetch)
-    # Usamos prefetch para fundir os resultados
-    search_results = await client.query_points(
+    # 2. Buscas Independentes (Densa e Esparsa)
+    dense_res = await client.query_points(
         collection_name=collection_name,
-        query=models.FusionQuery(fusion=models.Fusion.RRF),
-        prefetch=[
-            models.Prefetch(
-                query=dense_vector,
-                using="dense",
-                filter=models.Filter(must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=pid_str))]),
-                limit=limit * 3
-            ),
-            models.Prefetch(
-                query=models.SparseVector(indices=sparse_data["indices"], values=sparse_data["values"]),
-                using="sparse",
-                filter=models.Filter(must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=pid_str))]),
-                limit=limit * 3
-            )
-        ],
-        limit=limit,
+        query=dense_vector,
+        using="dense",
+        query_filter=models.Filter(must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=pid_str))]),
+        limit=limit * 3,
+        with_payload=True,
+    )
+    
+    sparse_res = await client.query_points(
+        collection_name=collection_name,
+        query=models.SparseVector(indices=sparse_data["indices"], values=sparse_data["values"]),
+        using="sparse",
+        query_filter=models.Filter(must=[models.FieldCondition(key="project_id", match=models.MatchValue(value=pid_str))]),
+        limit=limit * 3,
         with_payload=True,
     )
 
-    hits = search_results.points
+    # 3. Conversão para dict compatível com o _set_union_merge
+    dense_dicts = [{"id": str(h.id), "score": h.score, "payload": h.payload} for h in dense_res.points]
+    sparse_dicts = [{"id": str(h.id), "score": h.score, "payload": h.payload} for h in sparse_res.points]
+
+    # 4. Set-Union Merging (SUM)
+    hits = _set_union_merge(dense_dicts, sparse_dicts, limit=limit)
+
     if not hits:
         return []
 
-    # 3. Reranking Condicional (Gargalo B)
-    # Se a diferença entre o primeiro e o segundo resultado for grande (> threshold), 
-    # pulamos o rerank pois o resultado é inequívoco.
-    needs_rerank = True
-    if len(hits) > 1:
-        spread = hits[0].score - hits[1].score
-        if spread > score_threshold:
-            needs_rerank = False
-            # log.info("Rerank skip: High confidence spread (%.2f)", spread)
-
-    # Implementação simplificada do rerank (no RAG Final isto passaria por um Cross-Encoder)
-    # Por agora, focamos na marcação da "Alima" com Source Identity.
-
     results = []
     for hit in hits:
-        payload = hit.payload
+        payload = hit["payload"]
         filename = payload.get("filename", "desconhecido")
         text_raw = payload.get("text_raw", payload.get("text", ""))
         
@@ -158,9 +146,11 @@ async def hybrid_search_evidence(
             "filename": filename,
             "section": payload.get("section_title", ""),
             "page": payload.get("page_number", 0),
-            "score": hit.score,
+            "score": hit["score"],
             "context": payload.get("text", ""), # texto enriquecido contextualizado
-            "bbox": payload.get("bbox")
+            "bbox": payload.get("bbox"),
+            "is_anchor": payload.get("is_anchor", False)
         })
 
     return results
+

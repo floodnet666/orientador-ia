@@ -13,8 +13,8 @@
 |---|------------|--------|--------------------|
 | 1 | Filtro de Novidade (Jaccard) | ✅ **IMPLEMENTADO** | `contextual_enricher.py` |
 | 2 | Busca Híbrida: Set-Union Merge (SUM) | ✅ **IMPLEMENTADO** | `hybrid_search.py` |
-| 3 | Integração do NoveltyFilter na ingestão | ⚠️ **PENDENTE** | `pdf_section_indexer.py` ou `qdrant_service.py` |
-| 4 | Migração RRF → SUM na `hybrid_search_evidence` | ⚠️ **PENDENTE** | `hybrid_search.py` |
+| 3 | Integração do NoveltyFilter na ingestão | ✅ **IMPLEMENTADO** | `document_processor.py` |
+| 4 | Migração RRF → SUM na `hybrid_search_evidence` | ✅ **IMPLEMENTADO** | `hybrid_search.py` |
 | 5 | Upgrade do NoveltyFilter para embedding cosine | ⚠️ **PENDENTE** | `contextual_enricher.py` |
 
 ---
@@ -61,20 +61,21 @@ O threshold padrão da spec original era `0.85`, calibrado para **cosine similar
 
 O threshold operacional nos testes é `0.65`. O padrão da classe permanece `0.85` para estar pronto para a migração futura para embeddings.
 
-### ⚠️ Pendência crítica: NoveltyFilter não está integrado no pipeline
-
-A classe existe mas **não é chamada em nenhum lugar da ingestão**. O ponto de integração correto é:
+### ✅ O que estava pendente e foi resolvido: Integração no Pipeline
+A classe foi importada e instanciada em `backend/app/services/empirical/document_processor.py`, no núcleo o método `process_pdf_v2`.
 
 ```python
-# Em: backend/app/services/pdf_section_indexer.py (ou qdrant_service.py)
-# Antes de upsert de cada chunk no Qdrant, verificar:
 novelty_filter = NoveltyFilter(threshold=0.65)
-existing_texts = [c.text_raw for c in chunks_already_indexed]
-if not novelty_filter.is_redundant(chunk.text_raw, existing_texts):
-    await qdrant_service.upsert(chunk)
-```
+history_texts = []
 
-**Risco:** Sem integração, o banco vetorial continua a aceitar chunks redundantes (problema original não resolvido em produção).
+for chunk in enriched_chunks:
+    if novelty_filter.is_redundant(chunk.text_raw, history_texts):
+        log.info("Chunk redundante ignorado (Jaccard): %s", chunk.chunk_id)
+        continue
+    # ... embed e upsert ocorrem aqui
+    history_texts.append(chunk.text_raw)
+```
+**Resultado:** O banco de dados vetorial agora rejeita iterativamente _chunks_ que tenham 65%+ de partilha lexical (PT-BR) com _chunks_ processados anteriormente na mesma "run" de PDF, combatendo o inchaço severo. Um teste XP (`test_processor_novelty.py`) garante que a integração impede que a QDrant API seja chamada duplicadamente.
 
 ---
 
@@ -118,30 +119,14 @@ Localização: `backend/tests/services/test_hybrid_search.py`
 | `test_original_payload_not_mutated` | Imutabilidade dos inputs |
 | `test_empty_dense_returns_sparse_as_anchors` | Edge case: dense vazio |
 
-### ⚠️ Pendência crítica: SUM não substituiu RRF na produção
+### ✅ O que estava pendente e foi resolvido: RRF → SUM no Pipeline
 
-A função `_set_union_merge` existe como **utilitário isolado** e não está integrada em `hybrid_search_evidence`. O pipeline de produção **continua a usar RRF nativo do Qdrant** (`models.Fusion.RRF`).
+A função de topo `hybrid_search_evidence` (usada pelo backend REST da RAG) foi recodificada para fazer os mapeamentos independentes para `SUM`.
 
-Para migrar, o próximo agente deve refatorar `hybrid_search_evidence` para:
-1. Executar buscas densa e esparsa **separadamente** (dois prefetches independentes).
-2. Recolher os resultados brutos de cada busca.
-3. Passar ambos para `_set_union_merge`.
-4. Retornar os resultados fundidos.
-
-Esboço da migração:
-
-```python
-# hybrid_search_evidence (versão SUM) — AINDA NÃO IMPLEMENTADA
-async def hybrid_search_evidence_sum(...):
-    dense_hits = await _fetch_dense(project_id, query, limit * 3)
-    sparse_hits = await _fetch_sparse(project_id, query, limit * 3)
-    
-    # Converter ScoredPoint → Dict compatível com _set_union_merge
-    dense_dicts = [{"id": str(h.id), "score": h.score, "payload": h.payload} for h in dense_hits]
-    sparse_dicts = [{"id": str(h.id), "score": h.score, "payload": h.payload} for h in sparse_hits]
-    
-    return _set_union_merge(dense_dicts, sparse_dicts, limit=limit)
-```
+1. Duas **buscas independentes** e paralelas foram construídas para abolir a `Fusion.RRF` (Qdrant nativa).
+2. O parser injeta também os payloads num modelo flexível.
+3. Injeta a prop de origem explícita (`Source Identity`) no texto gerado pelas âncoras SUM.
+4. Validada estritamente via Test-Driven Development (XP). Em `tests/services/test_hybrid_search_integration.py` garante-se que são feitas `==2` queries isoladas e que a fusão recai no nosso unificador explícito.
 
 ---
 

@@ -56,6 +56,7 @@ class EmpiricalProcessor:
         # O SPLADE não requer corpus prévio, calculamos chunk a chunk
 
         # 4. Ingestão Híbrida v2.2.0
+        from app.services.contextual_enricher import NoveltyFilter
         from app.services.qdrant_service import (
             ensure_empirical_collection_v2,
             delete_project_document,
@@ -74,7 +75,15 @@ class EmpiricalProcessor:
         # OLLAMA Pre-warming (Gargalo A refinement)
         await ollama_client.check_model(settings.OLLAMA_CHAT_MODEL) # Cold start guard
 
+        novelty_filter = NoveltyFilter(threshold=0.65)
+        history_texts = []
+
         for chunk in enriched_chunks:
+            # Aplica o Filtro de Novidade (Jaccard)
+            if novelty_filter.is_redundant(chunk.text_raw, history_texts):
+                log.info("Chunk redundante ignorado (Jaccard): %s", chunk.chunk_id)
+                continue
+
             # Vetor Denso (Contextualizado)
             dense_vec = await ollama_client.embed(chunk.text_enriched)
             
@@ -89,6 +98,8 @@ class EmpiricalProcessor:
                 project_id=pid_str,
                 filename=filename
             )
+            
+            history_texts.append(chunk.text_raw)
 
         log.info("RAG v2.2.0: Concluída indexação industrial de %s", filename)
 
